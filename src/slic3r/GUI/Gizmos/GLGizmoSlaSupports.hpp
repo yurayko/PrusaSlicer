@@ -5,9 +5,6 @@
 #include "GLGizmos.hpp"
 #include "slic3r/GUI/GLSelectionRectangle.hpp"
 
-// There is an L function in igl that would be overridden by our localization macro - let's undefine it...
-#undef L
-#include <igl/AABB.h>
 #include "slic3r/GUI/I18N.hpp"  // ...and redefine again when we are done with the igl code
 
 #include "libslic3r/SLA/SLACommon.hpp"
@@ -35,9 +32,7 @@ private:
     const float RenderPointScale = 1.f;
 
     GLUquadricObj* m_quadric;
-    Eigen::MatrixXf m_V; // vertices
-    Eigen::MatrixXi m_F; // facets indices
-    igl::AABB<Eigen::MatrixXf,3> m_AABB;
+    sla::EigenMesh3D             m_emesh;
     const TriangleMesh* m_mesh;
     mutable const TriangleMesh* m_supports_mesh;
     mutable std::vector<Vec2f> m_triangles;
@@ -72,10 +67,10 @@ public:
     bool is_selection_rectangle_dragging() const { return m_selection_rectangle.is_dragging(); }
 
 private:
-    bool on_init();
-    void on_update(const UpdateData& data, const Selection& selection);
-    virtual void on_render(const Selection& selection) const;
-    virtual void on_render_for_picking(const Selection& selection) const;
+    bool on_init() override;
+    void on_update(const UpdateData& data, const Selection& selection) override;
+    virtual void on_render(const Selection& selection) const override;
+    virtual void on_render_for_picking(const Selection& selection) const override;
 
     //void render_selection_rectangle() const;
     void render_points(const Selection& selection, bool picking = false) const;
@@ -134,9 +129,9 @@ protected:
     void on_start_dragging(const Selection& selection) override;
     virtual void on_render_input_window(float x, float y, float bottom_limit, const Selection& selection) override;
 
-    virtual std::string on_get_name() const;
-    virtual bool on_is_activable(const Selection& selection) const;
-    virtual bool on_is_selectable() const;
+    virtual std::string on_get_name() const override;
+    virtual bool on_is_activable(const Selection& selection) const override;
+    virtual bool on_is_selectable() const override;
 };
 
 

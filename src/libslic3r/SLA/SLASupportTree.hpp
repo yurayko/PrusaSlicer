@@ -119,8 +119,6 @@ struct Controller {
     std::function<void(void)> cancelfn = [](){};
 };
 
-using PointSet = Eigen::MatrixXd;
-
 //EigenMesh3D to_eigenmesh(const TriangleMesh& m);
 
 // needed for find best rotation

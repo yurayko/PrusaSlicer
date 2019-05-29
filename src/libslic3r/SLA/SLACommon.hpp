@@ -3,6 +3,7 @@
 
 #include <Eigen/Geometry>
 #include <memory>
+#include <vector>
 
 // #define SLIC3R_SLA_NEEDS_WINDTREE
 
@@ -63,8 +64,10 @@ class EigenMesh3D {
     double m_ground_level = 0;
 
     std::unique_ptr<AABBImpl> m_aabb;
-public:
 
+public:
+    EigenMesh3D();
+    EigenMesh3D(const Eigen::MatrixXd& V, const Eigen::MatrixXi& F);
     EigenMesh3D(const TriangleMesh&);
     EigenMesh3D(const EigenMesh3D& other);
     EigenMesh3D& operator=(const EigenMesh3D&);
@@ -118,10 +121,13 @@ public:
         inline bool is_inside() {
             return m_face_id >= 0 && normal().dot(m_dir) > 0;
         }
+
+        inline bool is_hit() const { return m_face_id >= 0;  }
     };
 
     // Casting a ray on the mesh, returns the distance where the hit occures.
     hit_result query_ray_hit(const Vec3d &s, const Vec3d &dir) const;
+    std::vector<hit_result> query_ray_hits(const Vec3d &s, const Vec3d &dir) const;
 
     class si_result {
         double m_value;
@@ -151,7 +157,17 @@ public:
     double squared_distance(const Vec3d& p, int& i, Vec3d& c) const;
 };
 
+using PointSet = Eigen::MatrixXd;
 
+// Calculate the normals for the selected points on the mesh.
+// This will call squared distance for each point.
+// First argument is a function which takes an index from selected_points
+// and returns a point
+PointSet normals(std::function<Vec3d(unsigned)> pfn,
+                 const EigenMesh3D& mesh,
+                 double eps,  // min distance from edges
+                 const std::vector<unsigned>& selected_points,
+                 std::function<void()> throw_on_cancel = [](){});
 
 
 } // namespace sla

@@ -591,14 +591,6 @@ enum { // For indexing Eigen vectors as v(X), v(Y), v(Z) instead of numbers
   X, Y, Z
 };
 
-// Calculate the normals for the selected points (from 'points' set) on the
-// mesh. This will call squared distance for each point.
-PointSet normals(const PointSet& points,
-                 const EigenMesh3D& mesh,
-                 double eps = 0.05,  // min distance from edges
-                 std::function<void()> throw_on_cancel = [](){},
-                 const std::vector<unsigned>& selected_points = {});
-
 inline Vec2d to_vec2(const Vec3d& v3) {
     return {v3(X), v3(Y)};
 }
@@ -1418,10 +1410,12 @@ public:
             // Here we keep only the front point of the cluster.
             filtered_indices.emplace_back(a.front());
         }
-
+        
         // calculate the normals to the triangles for filtered points
-        auto nmls = sla::normals(m_points, m_mesh, m_cfg.head_front_radius_mm,
-                                 m_thr, filtered_indices);
+        auto nmls = sla::normals(
+            [this](unsigned i) { return m_support_pts[i].pos.cast<double>(); },
+            m_mesh,
+            m_cfg.head_front_radius_mm, filtered_indices, m_thr);
 
         // Not all of the support points have to be a valid position for
         // support creation. The angle may be inappropriate or there may
