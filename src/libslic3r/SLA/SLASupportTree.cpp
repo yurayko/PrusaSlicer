@@ -1432,7 +1432,7 @@ public:
             m_thr();
 
             fidx = filtered_indices[i];
-            auto n = nmls.row(i);
+            auto n = nmls.row(i).normalized(); // TODO: figure out without norm
 
             // for all normals we generate the spherical coordinates and
             // saturate the polar angle to 45 degrees from the bottom then
@@ -1441,9 +1441,9 @@ public:
             // (Quaternion::FromTwoVectors) and apply the rotation to the
             // arrow head.
 
-            double z = n(2);
-            double r = 1.0;     // for normalized vector
-            double polar = std::acos(z / r);
+            double z       = n(2);
+            double r       = 1.0;
+            double polar   = std::acos(z / r);
             double azimuth = std::atan2(n(1), n(0));
 
             // skip if the tilt is not sane

@@ -349,7 +349,7 @@ PointSet normals(std::function<Vec3d(unsigned)> pfn,
         if (neigh.empty()) {
             Eigen::Vector3d U   = p2 - p1;
             Eigen::Vector3d V   = p3 - p1;
-            ret.row(long(ridx)) = U.cross(V).normalized();
+            ret.row(long(ridx)) = U.cross(V);
             return;
         }
         
@@ -389,13 +389,13 @@ PointSet normals(std::function<Vec3d(unsigned)> pfn,
                                            && deq(n1(Y), n2(Y))
                                            && deq(n1(Z), n2(Z));
                                 });
-        
+
         // sum up the normals and then normalize the result again.
         // This unification seems to be enough.
-        Vec3d sumnorm(0, 0, 0);
-        sumnorm = std::accumulate(neighnorms.begin(), lend, sumnorm);
-        sumnorm.normalize();
-        ret.row(long(ridx)) = sumnorm;
+        ret.row(long(ridx)) = std::accumulate(neighnorms.begin(),
+                                              lend,
+                                              Vec3d(Vec3d::Zero()))
+                              / (lend - neighnorms.begin());
     };
 
     if (range.size() > 1)

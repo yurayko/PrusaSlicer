@@ -106,8 +106,8 @@ public:
 
         // Hit_result can decay into a double as the hit distance.
         inline operator double() const { return distance(); }
-
-        inline Vec3d normal() const {
+        
+        inline Vec3d unnormalized_normal() const {
             if(m_face_id < 0 || !is_valid()) return {};
             auto trindex    = m_mesh->m_F.row(m_face_id);
             const Vec3d& p1 = m_mesh->V().row(trindex(0));
@@ -115,11 +115,11 @@ public:
             const Vec3d& p3 = m_mesh->V().row(trindex(2));
             Eigen::Vector3d U = p2 - p1;
             Eigen::Vector3d V = p3 - p1;
-            return U.cross(V).normalized();
+            return U.cross(V).normalized();    
         }
 
         inline bool is_inside() {
-            return m_face_id >= 0 && normal().dot(m_dir) > 0;
+            return m_face_id >= 0 && unnormalized_normal().dot(m_dir) > 0;
         }
 
         inline bool is_hit() const { return m_face_id >= 0;  }

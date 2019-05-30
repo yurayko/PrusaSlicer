@@ -466,7 +466,7 @@ std::pair<Vec3f, Vec3f> GLGizmoSlaSupports::unproject_on_mesh(const Vec2d& mouse
     // Calculate and return both the point and the facet normal.
     return std::make_pair(
         result.position().cast<float>(),
-        result.normal().cast<float>()
+        result.unnormalized_normal().cast<float>()
         );
 }
 
