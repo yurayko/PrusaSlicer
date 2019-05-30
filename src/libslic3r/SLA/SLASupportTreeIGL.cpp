@@ -283,11 +283,10 @@ PointSet normals(std::function<Vec3d(unsigned)> pfn,
 
     auto proc = [&ret, &range, &mesh, &pfn, thr, eps](size_t ridx) {
         thr();
-        auto  eidx   = Eigen::Index(range[ridx]);
         int   faceid = 0;
         Vec3d p;
 
-        mesh.squared_distance(pfn(eidx), faceid, p);
+        mesh.squared_distance(pfn(range[ridx]), faceid, p);
 
         if (faceid < 0) return;
 

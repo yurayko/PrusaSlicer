@@ -121,9 +121,9 @@ Contour3D walls(const Polygon& lower, const Polygon& upper,
         case Proceed::UPPER:
             if(!ustarted || uidx != uendidx) { // there are vertices remaining
                 // Get the 3D vertices in order
-                const Vec3d& p_up1 = rpts[size_t(uidx)];
-                const Vec3d& p_low = rpts[size_t(lidx)];
-                const Vec3d& p_up2 = rpts[size_t(unextidx)];
+                const Vec3d& p_up1 = rpts[uidx];
+                const Vec3d& p_low = rpts[lidx];
+                const Vec3d& p_up2 = rpts[unextidx];
 
                 // Calculate fitness: the average of the two connecting edges
                 double a = offsdiff2 - (distfn(p_up1, p_low) - zdiff2);
@@ -133,8 +133,8 @@ Contour3D walls(const Polygon& lower, const Polygon& upper,
                 if(current_fit > prev_fit) { // fit is worse than previously
                     proceed = Proceed::LOWER;
                 } else {    // good to go, create the triangle
-                    inverted? rfaces.emplace_back(unextidx, lidx, uidx) :
-                              rfaces.emplace_back(uidx, lidx, unextidx) ;
+                    inverted? rfaces.emplace_back(int(unextidx), int(lidx), int(uidx)) :
+                              rfaces.emplace_back(int(uidx), int(lidx), int(unextidx)) ;
 
                     // Increment the iterators, rotate if necessary
                     ++uidx; ++unextidx;
@@ -150,9 +150,9 @@ Contour3D walls(const Polygon& lower, const Polygon& upper,
         case Proceed::LOWER:
             // Mode with lower segment, upper vertex. Same structure:
             if(!lstarted || lidx != lendidx) {
-                const Vec3d& p_low1 = rpts[size_t(lidx)];
-                const Vec3d& p_low2 = rpts[size_t(lnextidx)];
-                const Vec3d& p_up   = rpts[size_t(uidx)];
+                const Vec3d& p_low1 = rpts[lidx];
+                const Vec3d& p_low2 = rpts[lnextidx];
+                const Vec3d& p_up   = rpts[uidx];
 
                 double a = offsdiff2 - (distfn(p_up, p_low1) - zdiff2);
                 double b = offsdiff2 - (distfn(p_up, p_low2) - zdiff2);
@@ -161,8 +161,8 @@ Contour3D walls(const Polygon& lower, const Polygon& upper,
                 if(current_fit > prev_fit) {
                     proceed = Proceed::UPPER;
                 } else {
-                    inverted? rfaces.emplace_back(uidx, lnextidx, lidx) :
-                              rfaces.emplace_back(lidx, lnextidx, uidx);
+                    inverted? rfaces.emplace_back(int(uidx), int(lnextidx), int(lidx)) :
+                              rfaces.emplace_back(int(lidx), int(lnextidx), int(uidx));
 
                     ++lidx; ++lnextidx;
                     if(lnextidx == rpts.size()) lnextidx = offs;

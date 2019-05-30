@@ -36,7 +36,7 @@ inline coord_t x(const Vec3crd& p) { return p(0); }
 inline coord_t y(const Vec3crd& p) { return p(1); }
 inline coord_t z(const Vec3crd& p) { return p(2); }
 
-using Indices = std::vector<Vec3crd>;
+using Indices = std::vector<Vec3i>;
 
 /// Intermediate struct for a 3D mesh
 struct Contour3D {

@@ -214,6 +214,7 @@ ExternalProject_Add(dep_libigl
     EXCLUDE_FROM_ALL 1
     URL "https://github.com/libigl/libigl/archive/v2.0.0.tar.gz"
     URL_HASH SHA256=42518e6b106c7209c73435fd260ed5d34edeb254852495b4c95dce2d95401328
+    CMAKE_GENERATOR "${DEP_MSVC_GEN}"
     CMAKE_ARGS
         -DCMAKE_INSTALL_PREFIX=${DESTDIR}/usr/local
         -DLIBIGL_BUILD_PYTHON=OFF
@@ -235,7 +236,11 @@ ExternalProject_Add(dep_libigl
         -DLIBIGL_WITH_TETGEN=OFF
         -DLIBIGL_WITH_TRIANGLE=OFF
         -DLIBIGL_WITH_XML=OFF
-    PATCH_COMMAND ${GIT_EXECUTABLE} apply ${CMAKE_CURRENT_SOURCE_DIR}/igl-fixes.patch
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        -DCMAKE_DEBUG_POSTFIX=d
+    PATCH_COMMAND ${GIT_EXECUTABLE} apply --ignore-space-change --ignore-whitespace ${CMAKE_CURRENT_SOURCE_DIR}/igl-fixes.patch
+    BUILD_COMMAND msbuild /m /P:Configuration=Release INSTALL.vcxproj
+    INSTALL_COMMAND ""
 )
 
 if (${DEP_DEBUG})
