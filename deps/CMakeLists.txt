@@ -97,6 +97,7 @@ else()
         dep_wxwidgets
         dep_gtest
         dep_nlopt
+        dep_libigl
     )
 
 endif()
