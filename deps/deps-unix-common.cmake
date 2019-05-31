@@ -43,7 +43,7 @@ ExternalProject_Add(dep_libigl
         -DLIBIGL_BUILD_PYTHON=OFF
         -DLIBIGL_BUILD_TESTS=OFF
         -DLIBIGL_BUILD_TUTORIALS=OFF
-        -DLIBIGL_USE_STATIC_LIBRARY=ON
+        -DLIBIGL_USE_STATIC_LIBRARY=${DEP_BUILD_IGL_STATIC}
         -DLIBIGL_WITHOUT_COPYLEFT=OFF
         -DLIBIGL_WITH_CGAL=OFF
         -DLIBIGL_WITH_COMISO=OFF
@@ -59,6 +59,6 @@ ExternalProject_Add(dep_libigl
         -DLIBIGL_WITH_TETGEN=OFF
         -DLIBIGL_WITH_TRIANGLE=OFF
         -DLIBIGL_WITH_XML=OFF
-    PATCH_COMMAND ${GIT_EXECUTABLE} apply ${CMAKE_CURRENT_SOURCE_DIR}/igl-fixes.patch
+    PATCH_COMMAND ${GIT_EXECUTABLE} apply --ignore-space-change --ignore-whitespace ${CMAKE_CURRENT_SOURCE_DIR}/igl-fixes.patch
 )
 
