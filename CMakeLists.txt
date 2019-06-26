@@ -1,6 +1,14 @@
 project(PrusaSlicer)
 cmake_minimum_required(VERSION 3.2)
 
+# This should make use of warning handling from external library include paths
+# see https://gitlab.kitware.com/cmake/cmake/issues/17904
+# and https://devblogs.microsoft.com/cppblog/broken-warnings-theory/
+if (MSVC AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 19.14)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /experimental:external /external:W0 ")
+    set(CMAKE_INCLUDE_SYSTEM_FLAG_CXX "/external:I ")
+endif()
+
 include("version.inc")
 include(GNUInstallDirs)
 
