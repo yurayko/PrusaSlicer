@@ -380,8 +380,10 @@ int CLI::run(int argc, char **argv)
                 PrintBase  *print = (printer_technology == ptFFF) ? static_cast<PrintBase*>(&fff_print) : static_cast<PrintBase*>(&sla_print);
                 if (! m_config.opt_bool("dont_arrange")) {
                     //FIXME make the min_object_distance configurable.
-                    model.arrange_objects(fff_print.config().min_object_distance());
-					model.center_instances_around_point(m_config.option<ConfigOptionPoint>("center")->value);
+                    //FIXME: correct bed hape is needed.
+                    const BoundingBoxf &bb = fff_print_config.bed_shape.values;
+                    model.arrange_objects(fff_print.config().min_object_distance(), &bb);
+					//model.center_instances_around_point(m_config.option<ConfigOptionPoint>("center")->value);
                 }
                 if (printer_technology == ptFFF) {
                     for (auto* mo : model.objects)

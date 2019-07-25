@@ -427,30 +427,31 @@ ClusteredPoints cluster(Index3D &sindex,
                             const Index3D &, const PointIndexEl &)> qfn)
 {
     using Elems = std::vector<PointIndexEl>;
-
+    
+    auto cmpfn = [](const PointIndexEl& e1, const PointIndexEl& e2){
+        return e1.second < e2.second;
+    };
+    
     // Recursive function for visiting all the points in a given distance to
     // each other
     std::function<void(Elems&, Elems&)> group =
-    [&sindex, &group, max_points, qfn](Elems& pts, Elems& cluster)
+    [&sindex, &group, max_points, qfn, cmpfn](Elems& pts, Elems& cluster)
     {
         for(auto& p : pts) {
             std::vector<PointIndexEl> tmp = qfn(sindex, p);
-            auto cmp = [](const PointIndexEl& e1, const PointIndexEl& e2){
-                return e1.second < e2.second;
-            };
 
-            std::sort(tmp.begin(), tmp.end(), cmp);
+            std::sort(tmp.begin(), tmp.end(), cmpfn);
 
             Elems newpts;
             std::set_difference(tmp.begin(), tmp.end(),
                                 cluster.begin(), cluster.end(),
-                                std::back_inserter(newpts), cmp);
+                                std::back_inserter(newpts), cmpfn);
 
             int c = max_points && newpts.size() + cluster.size() > max_points?
                         int(max_points - cluster.size()) : int(newpts.size());
 
             cluster.insert(cluster.end(), newpts.begin(), newpts.begin() + c);
-            std::sort(cluster.begin(), cluster.end(), cmp);
+            std::sort(cluster.begin(), cluster.end(), cmpfn);
 
             if(!newpts.empty() && (!max_points || cluster.size() < max_points))
                 group(newpts, cluster);

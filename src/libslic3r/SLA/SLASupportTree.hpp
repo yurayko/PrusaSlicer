@@ -9,7 +9,6 @@
 
 #include "SLACommon.hpp"
 
-
 namespace Slic3r {
 
 // Needed types from Point.hpp
@@ -126,28 +125,12 @@ struct Controller {
 
 using PointSet = Eigen::MatrixXd;
 
-//EigenMesh3D to_eigenmesh(const TriangleMesh& m);
-
-// needed for find best rotation
-//EigenMesh3D to_eigenmesh(const ModelObject& model);
-
-// Simple conversion of 'vector of points' to an Eigen matrix
-//PointSet    to_point_set(const std::vector<sla::SupportPoint>&);
-
-
 /* ************************************************************************** */
 
 /// The class containing mesh data for the generated supports.
 class SLASupportTree {
     class Impl;     // persistent support data
     std::unique_ptr<Impl> m_impl;
-
-    Impl& get() { return *m_impl; }
-    const Impl& get() const { return *m_impl; }
-
-    friend void add_sla_supports(Model&,
-                                 const SupportConfig&,
-                                 const Controller&);
 
     // The generation algorithm is quite long and will be captured in a separate
     // class with private data, helper methods, etc... This data is only needed
@@ -171,20 +154,15 @@ public:
                    const EigenMesh3D& em,
                    const SupportConfig& cfg = {},
                    const Controller& ctl = {});
-
-    SLASupportTree(const SLASupportTree&);
-    SLASupportTree& operator=(const SLASupportTree&);
+    
+    SLASupportTree(const SLASupportTree&) = delete;
+    SLASupportTree& operator=(const SLASupportTree&) = delete;
 
     ~SLASupportTree();
 
     /// Get the whole mesh united into the output TriangleMesh
     /// WITHOUT THE PAD
     const TriangleMesh& merged_mesh() const;
-
-    void merged_mesh_with_pad(TriangleMesh&) const;
-
-    /// Get the sliced 2d layers of the support geometry.
-    std::vector<ExPolygons> slice(float layerh, float init_layerh = -1.0) const;
 
     std::vector<ExPolygons> slice(const std::vector<float> &,
                                   float closing_radius) const;

@@ -949,10 +949,6 @@ void SLAPrint::process()
         // Create the unified mesh
         auto rc = SlicingStatus::RELOAD_SCENE;
 
-        // This is to prevent "Done." being displayed during merged_mesh()
-        m_report_status(*this, -1, L("Visualizing supports"));
-        po.m_supportdata->support_tree_ptr->merged_mesh();
-
         BOOST_LOG_TRIVIAL(debug) << "Processed support point count "
                                  << po.m_supportdata->support_points.size();
 
