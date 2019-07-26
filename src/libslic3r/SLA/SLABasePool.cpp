@@ -591,20 +591,21 @@ inline Point centroid(const Polygon& poly) {
 /// with explicit bridges. Bridges are generated from each shape's centroid
 /// to the center of the "scene" which is the centroid calculated from the shape
 /// centroids (a star is created...)
-Polygons concave_hull(const Polygons& polys, double max_dist_mm = 50,
-                      ThrowOnCancel throw_on_cancel = [](){})
+ConcaveHull::ConcaveHull(const Polygons &polys,
+                         double          max_dist_mm,
+                         ThrowOnCancel   throw_on_cancel)
 {
     namespace bgi = boost::geometry::index;
     using SpatElement = std::pair<Point, unsigned>;
     using SpatIndex = bgi::rtree< SpatElement, bgi::rstar<16, 4> >;
-
-    if(polys.empty()) return Polygons();
+    
+    if(polys.empty()) { polygons = {}; return; }
     
     const double max_dist = scaled(max_dist_mm);
 
     Polygons punion = unify(polys);   // could be redundant
-
-    if(punion.size() == 1) return punion;
+    
+    if(punion.size() == 1) { polygons = std::move(punion); return; }
 
     // We get the centroids of all the islands in the 2D slice
     Points centroids; centroids.reserve(punion.size());
@@ -664,8 +665,8 @@ Polygons concave_hull(const Polygons& polys, double max_dist_mm = 50,
 
     // This is unavoidable...
     punion = unify(punion);
-
-    return punion;
+    
+    polygons = std::move(punion);
 }
 
 void base_plate(const TriangleMesh &      mesh,
@@ -715,23 +716,13 @@ void base_plate(const TriangleMesh &mesh,
     base_plate(mesh, output, heights, thrfn);
 }
 
-Contour3D create_base_pool(const Polygons &ground_layer, 
+Contour3D create_base_pool(const Polygons &concavehs, 
                            const ExPolygons &obj_self_pad = {},
                            const PoolConfig& cfg = PoolConfig()) 
 {
     // for debugging:
     // Benchmark bench;
     // bench.start();
-
-    double mergedist = 2*(1.8*cfg.min_wall_thickness_mm + 4*cfg.edge_radius_mm)+
-                       cfg.max_merge_distance_mm;
-
-    // Here we get the base polygon from which the pad has to be generated.
-    // We create an artificial concave hull from this polygon and that will
-    // serve as the bottom plate of the pad. We will offset this concave hull
-    // and then offset back the result with clipper with rounding edges ON. This
-    // trick will create a nice rounded pad shape.
-    Polygons concavehs = concave_hull(ground_layer, mergedist, cfg.throw_on_cancel);
 
     const double thickness      = cfg.min_wall_thickness_mm;
     const double wingheight     = cfg.min_wall_height_mm;
@@ -746,12 +737,12 @@ Contour3D create_base_pool(const Polygons &ground_layer,
     const coord_t s_safety_dist = 2*s_eradius + coord_t(0.8*s_thickness);
     const coord_t s_wingdist    = scaled(wingdist);
     const coord_t s_bottom_offs = scaled(bottom_offs);
-
+    
     auto& thrcl = cfg.throw_on_cancel;
 
     Contour3D pool;
 
-    for(Polygon& concaveh : concavehs) {
+    for(const Polygon& concaveh : concavehs) {
         if(concaveh.points.empty()) return pool;
 
         // Here lies the trick that does the smoothing only with clipper offset
@@ -915,8 +906,17 @@ void create_base_pool(const Polygons &ground_layer, TriangleMesh& out,
     // std::cout << "Pad creation time: " << bench.getElapsedSec() << std::endl;
     // std::fstream fout("pad_debug.obj", std::fstream::out);
     // if(fout.good()) pool.to_obj(fout);
+    
+    ConcaveHull c(ground_layer, cfg.max_merge_distance_mm, cfg.throw_on_cancel);
+    out.merge(mesh(create_base_pool(c.polygons, holes, cfg)));
+}
 
-    out.merge(mesh(create_base_pool(ground_layer, holes, cfg)));
+void create_base_pool(const ConcaveHull& concaveh,
+                      TriangleMesh& out,
+                      const ExPolygons& holes,
+                      const PoolConfig& cfg)
+{
+    out.merge(mesh(create_base_pool(concaveh.polygons, holes, cfg)));
 }
 
 }

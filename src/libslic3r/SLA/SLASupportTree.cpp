@@ -564,14 +564,13 @@ struct Pad {
 
     Pad() = default;
 
-    Pad(const TriangleMesh& support_mesh,
-        const ExPolygons& modelbase,
-        double ground_level,
-        const PoolConfig& pcfg) :
-        cfg(pcfg),
-        zlevel(ground_level + 
-               sla::get_pad_fullheight(pcfg) -
-               sla::get_pad_elevation(pcfg))
+    Pad(const TriangleMesh &support_mesh,
+        const ExPolygons &  modelbase,
+        double              ground_level,
+        const PoolConfig &  pcfg)
+        : cfg(pcfg)
+        , zlevel(ground_level + sla::get_pad_fullheight(pcfg) -
+                 sla::get_pad_elevation(pcfg))
     {
         Polygons basep;
         auto &thr = cfg.throw_on_cancel;
@@ -614,20 +613,30 @@ struct Pad {
                 unsigned idx = 0;
                 for(auto &bp : basep) {
                     auto bb = bp.bounding_box();
-                    bb.offset(float(scaled(pcfg.min_wall_thickness_mm)));
+                    bb.offset(scaled<float>(pcfg.min_wall_thickness_mm));
                     bindex.insert(bb, idx++);
                 }
             }
             
+            ExPolygons concaveh = offset_ex(
+                ConcaveHull(basep, pcfg.max_merge_distance_mm, thr).polygons,
+                scaled<float>(pcfg.min_wall_thickness_mm));
+
             // Punching the breaksticks across the offsetted polygon perimeters
             ExPolygons pad_stickholes; pad_stickholes.reserve(modelbase.size());
             for(auto& poly : modelbase_offs) {
                 
+                bool overlap = false;
+                for (const ExPolygon &p : concaveh)
+                    overlap = overlap || poly.overlaps(p);
+
+                auto bb = poly.contour.bounding_box();
+                bb.offset(scaled<float>(pcfg.min_wall_thickness_mm));
+
                 std::vector<BoxIndexEl> qres =
-                    bindex.query(poly.contour.bounding_box(),
-                                 BoxIndex::qtIntersects);
+                    bindex.query(bb, BoxIndex::qtIntersects);
                     
-                if (!qres.empty()) {
+                if (!qres.empty() || overlap) {
                     
                     // The model silhouette polygon 'poly' HAS an intersection
                     // with the support silhouettes. Include this polygon
@@ -869,16 +878,12 @@ public:
         meshcache_valid = false;
         return m_heads[m_head_indices[id]];
     }
-
-    const std::vector<Head>& heads() const { return m_heads; }
-    const std::vector<Pillar>& pillars() const { return m_pillars; }
-    const std::vector<Bridge>& bridges() const { return m_bridges; }
-    const std::vector<Junction>& junctions() const { return m_junctions; }
-    const std::vector<CompactBridge>& compact_bridges() const
-    {
-        return m_compact_bridges;
-    }
     
+    inline size_t pillarcount() const {
+        std::lock_guard<SpinMutex> lk(m_mutex);
+        return m_pillars.size();
+    }
+
     template<class T> inline IntegerOnly<T, const Pillar&> pillar(T id) const
     {
         std::lock_guard<SpinMutex> lk(m_mutex);
@@ -907,28 +912,28 @@ public:
 
         Contour3D merged;
 
-        for (auto &head : heads()) {
+        for (auto &head : m_heads) {
             if (m_ctl.stopcondition()) break;
             if (head.is_valid()) merged.merge(head.mesh);
         }
 
-        for (auto &stick : pillars()) {
+        for (auto &stick : m_pillars) {
             if (m_ctl.stopcondition()) break;
             merged.merge(stick.mesh);
             merged.merge(stick.base);
         }
 
-        for (auto &j : junctions()) {
+        for (auto &j : m_junctions) {
             if (m_ctl.stopcondition()) break;
             merged.merge(j.mesh);
         }
 
-        for (auto &cb : compact_bridges()) {
+        for (auto &cb : m_compact_bridges) {
             if (m_ctl.stopcondition()) break;
             merged.merge(cb.mesh);
         }
 
-        for (auto &bs : bridges()) {
+        for (auto &bs : m_bridges) {
             if (m_ctl.stopcondition()) break;
             merged.merge(bs.mesh);
         }
@@ -1074,6 +1079,7 @@ class SLASupportTree::Algorithm {
 
     // A spatial index to easily find strong pillars to connect to.
     PointIndex m_pillar_index;
+    mutable SpinMutex m_pillar_index_mutex;
 
     inline double ray_mesh_intersect(const Vec3d& s,
                                      const Vec3d& dir)
@@ -1487,7 +1493,7 @@ class SLASupportTree::Algorithm {
 
             if(nearest_id >= 0) {
                 auto nearpillarID = unsigned(nearest_id);
-                if(nearpillarID < m_result.pillars().size()) {
+                if(nearpillarID < m_result.pillarcount()) {
                     if(!connect_to_nearpillar(head, nearpillarID)) {
                         nearest_id = -1;    // continue searching
                         spindex.remove(ne); // without the current pillar
@@ -1609,8 +1615,10 @@ class SLASupportTree::Algorithm {
             pillar_id = plr.id;
         } 
             
-        if(pillar_id >= 0) // Save the pillar endpoint in the spatial index
+        if(pillar_id >= 0) { // Save the pillar endpoint in the spatial index
+            std::lock_guard<SpinMutex> lk(m_pillar_index_mutex);
             m_pillar_index.insert(endp, pillar_id);
+        }
     }
 
 public:
@@ -2218,8 +2226,8 @@ public:
                 
                 // Search for the pair amongst the remembered pairs
                 if(pairs.find(hashval) != pairs.end()) continue;
-
-                const Pillar& neighborpillar = m_result.pillars()[re.second];
+                
+                const Pillar& neighborpillar = m_result.pillar(re.second);
 
                 // this neighbor is occupied, skip
                 if(neighborpillar.links >= neighbors) continue;
@@ -2255,7 +2263,7 @@ public:
         // lonely pillars. One or even two additional pillar might get inserted
         // depending on the length of the lonely pillar.
         
-        size_t pillarcount = m_result.pillars().size();
+        size_t pillarcount = m_result.pillarcount();
         
         // Again, go through all pillars, this time in the whole support tree
         // not just the index.
@@ -2581,6 +2589,13 @@ std::vector<ExPolygons> SLASupportTree::slice(const std::vector<float> &heights,
                   std::back_inserter(sup_slices[i]));
         pad_slices[i] = {}; 
     }
+    
+    size_t s = 0;
+    for (auto &sl : sup_slices)
+        for (auto &poly : sl) {
+            s += sizeof(double) * poly.contour.points.size();
+            for (auto &h : poly.holes) s += sizeof(double) * h.points.size();
+        }
     
     return sup_slices;
 }

@@ -30,6 +30,13 @@ void base_plate(const TriangleMesh& mesh,       // input mesh
                 const std::vector<float>&,      // Exact Z levels to sample
                 ThrowOnCancel thrfn = [](){});  // Will be called frequently
 
+struct ConcaveHull {
+    Polygons polygons;
+    
+    ConcaveHull(const Polygons& polys, double max_dist_mm = 50,
+                ThrowOnCancel throw_on_cancel = [](){});
+};
+
 // Function to cut tiny connector cavities for a given polygon. The input poly
 // will be offsetted by "padding" and small rectangle shaped cavities will be
 // inserted along the perimeter in every "stride" distance. The stick rectangles
@@ -69,6 +76,11 @@ struct PoolConfig {
 
 /// Calculate the pool for the mesh for SLA printing
 void create_base_pool(const Polygons& base_plate,
+                      TriangleMesh& output_mesh,
+                      const ExPolygons& holes,
+                      const PoolConfig& = PoolConfig());
+
+void create_base_pool(const ConcaveHull& base_plate,
                       TriangleMesh& output_mesh,
                       const ExPolygons& holes,
                       const PoolConfig& = PoolConfig());
