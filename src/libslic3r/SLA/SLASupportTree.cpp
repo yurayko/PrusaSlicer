@@ -727,7 +727,10 @@ ClusteredPoints cluster(
 // The support pad is considered an auxiliary geometry and is not part of the
 // merged mesh. It can be retrieved using a dedicated method (pad())
 class SLASupportTree::Impl {
-    std::map<unsigned, Head> m_heads;
+    // For heads it is beneficial to use the same IDs as for the support points.
+    std::vector<Head> m_heads;
+    std::vector<size_t> m_head_indices;
+    
     std::vector<Pillar> m_pillars;
     std::vector<Junction> m_junctions;
     std::vector<Bridge> m_bridges;
@@ -739,6 +742,7 @@ class SLASupportTree::Impl {
     mutable SpinMutex m_mutex;
     mutable TriangleMesh meshcache; mutable bool meshcache_valid = false;
     mutable double model_height = 0; // the full height of the model
+    
 public:
     double ground_level = 0;
 
@@ -747,21 +751,25 @@ public:
 
     const Controller& ctl() const { return m_ctl; }
 
-    template<class...Args> Head& add_head(unsigned id, Args&&... args) {
+    template<class...Args> Head& add_head(unsigned id, Args&&... args)
+    {
         std::lock_guard<SpinMutex> lk(m_mutex);
-        auto el = m_heads.emplace(std::piecewise_construct,
-                            std::forward_as_tuple(id),
-                            std::forward_as_tuple(std::forward<Args>(args)...));
-        el.first->second.id = id;
+        m_heads.emplace_back(std::forward<Args>(args)...);
+        m_heads.back().id = id;
+        
+        if (id >= m_head_indices.size()) m_head_indices.resize(id + 1);
+        m_head_indices[id] = m_heads.size() - 1;
+        
         meshcache_valid = false;
-        return el.first->second;
+        return m_heads.back();
     }
 
-    template<class...Args> Pillar& add_pillar(unsigned headid, Args&&... args) {
+    template<class...Args> Pillar& add_pillar(unsigned headid, Args&&... args)
+    {
         std::lock_guard<SpinMutex> lk(m_mutex);
-        auto it = m_heads.find(headid);
-        assert(it != m_heads.end());
-        Head& head = it->second;
+        
+        assert(headid < m_head_indices.size());
+        Head &head = m_heads[m_head_indices[headid]];
         
         m_pillars.emplace_back(head, std::forward<Args>(args)...);
         Pillar& pillar = m_pillars.back();
@@ -769,11 +777,13 @@ public:
         head.pillar_id = pillar.id;
         pillar.start_junction_id = head.id;
         pillar.starts_from_head = true;
+        
         meshcache_valid = false;
         return m_pillars.back();
     }
 
-    void increment_bridges(const Pillar& pillar) {
+    void increment_bridges(const Pillar& pillar)
+    {
         std::lock_guard<SpinMutex> lk(m_mutex);
         assert(pillar.id >= 0 && size_t(pillar.id) < m_pillars.size());
         
@@ -781,7 +791,8 @@ public:
             m_pillars[size_t(pillar.id)].bridges++;
     }
 
-    void increment_links(const Pillar& pillar) {
+    void increment_links(const Pillar& pillar)
+    {
         std::lock_guard<SpinMutex> lk(m_mutex);
         assert(pillar.id >= 0 && size_t(pillar.id) < m_pillars.size());
         
@@ -800,26 +811,31 @@ public:
         return m_pillars.back();
     }
 
-    const Head& pillar_head(long pillar_id) const {
+    const Head& pillar_head(long pillar_id) const
+    {
         std::lock_guard<SpinMutex> lk(m_mutex);
         assert(pillar_id >= 0 && pillar_id < long(m_pillars.size()));
+        
         const Pillar& p = m_pillars[size_t(pillar_id)];
         assert(p.starts_from_head && p.start_junction_id >= 0);
-        auto it = m_heads.find(unsigned(p.start_junction_id));
-        assert(it != m_heads.end());
-        return it->second;
+        assert(size_t(p.start_junction_id) < m_head_indices.size());
+        
+        return m_heads[m_head_indices[p.start_junction_id]];
     }
 
-    const Pillar& head_pillar(unsigned headid) const {
+    const Pillar& head_pillar(unsigned headid) const
+    {
         std::lock_guard<SpinMutex> lk(m_mutex);
-        auto it = m_heads.find(headid);
-        assert(it != m_heads.end());
-        const Head& h = it->second;
+        assert(headid < m_head_indices.size());
+        
+        const Head& h = m_heads[m_head_indices[headid]];
         assert(h.pillar_id >= 0 && h.pillar_id < long(m_pillars.size()));
+        
         return m_pillars[size_t(h.pillar_id)];
     }
 
-    template<class...Args> const Junction& add_junction(Args&&... args) {
+    template<class...Args> const Junction& add_junction(Args&&... args)
+    {
         std::lock_guard<SpinMutex> lk(m_mutex);
         m_junctions.emplace_back(std::forward<Args>(args)...);
         m_junctions.back().id = long(m_junctions.size() - 1);
@@ -827,7 +843,8 @@ public:
         return m_junctions.back();
     }
 
-    template<class...Args> const Bridge& add_bridge(Args&&... args) {
+    template<class...Args> const Bridge& add_bridge(Args&&... args)
+    {
         std::lock_guard<SpinMutex> lk(m_mutex);
         m_bridges.emplace_back(std::forward<Args>(args)...);
         m_bridges.back().id = long(m_bridges.size() - 1);
@@ -835,8 +852,8 @@ public:
         return m_bridges.back();
     }
 
-    template<class...Args>
-    const CompactBridge& add_compact_bridge(Args&&...args) {
+    template<class...Args> const CompactBridge& add_compact_bridge(Args&&...args)
+    {
         std::lock_guard<SpinMutex> lk(m_mutex);
         m_compact_bridges.emplace_back(std::forward<Args>(args)...);
         m_compact_bridges.back().id = long(m_compact_bridges.size() - 1);
@@ -844,120 +861,128 @@ public:
         return m_compact_bridges.back();
     }
 
-    const std::map<unsigned, Head>& heads() const { return m_heads; }
-    Head& head(unsigned idx) {
+    Head &head(unsigned id)
+    {
         std::lock_guard<SpinMutex> lk(m_mutex);
+        assert(id < m_head_indices.size());
+
         meshcache_valid = false;
-        auto it = m_heads.find(idx);
-        assert(it != m_heads.end());
-        return it->second;
+        return m_heads[m_head_indices[id]];
     }
+
+    const std::vector<Head>& heads() const { return m_heads; }
     const std::vector<Pillar>& pillars() const { return m_pillars; }
     const std::vector<Bridge>& bridges() const { return m_bridges; }
     const std::vector<Junction>& junctions() const { return m_junctions; }
-    const std::vector<CompactBridge>& compact_bridges() const {
+    const std::vector<CompactBridge>& compact_bridges() const
+    {
         return m_compact_bridges;
     }
-
-    template<class T> inline const Pillar& pillar(T id) const {
-        static_assert(std::is_integral<T>::value, "Invalid index type");
+    
+    template<class T> inline IntegerOnly<T, const Pillar&> pillar(T id) const
+    {
         std::lock_guard<SpinMutex> lk(m_mutex);
         assert(id >= 0 && size_t(id) < m_pillars.size() &&
                size_t(id) < std::numeric_limits<size_t>::max());
+        
         return m_pillars[size_t(id)];
     }
 
-    const Pad& create_pad(const TriangleMesh& object_supports,
-                          const ExPolygons& modelbase,
-                          const PoolConfig& cfg) {
+    const Pad &create_pad(const TriangleMesh &object_supports,
+                          const ExPolygons &  modelbase,
+                          const PoolConfig &  cfg)
+    {
         m_pad = Pad(object_supports, modelbase, ground_level, cfg);
         return m_pad;
     }
 
-    void remove_pad() {
-        m_pad = Pad();
-    }
+    void remove_pad() { m_pad = Pad(); }
 
     const Pad& pad() const { return m_pad; }
 
     // WITHOUT THE PAD!!!
-    const TriangleMesh& merged_mesh() const {
-        if(meshcache_valid) return meshcache;
-       
+    const TriangleMesh &merged_mesh() const
+    {
+        if (meshcache_valid) return meshcache;
+
         Contour3D merged;
 
-        for(auto& headel : heads()) {
-            if(m_ctl.stopcondition()) break;
-            if(headel.second.is_valid())
-                merged.merge(headel.second.mesh);
+        for (auto &head : heads()) {
+            if (m_ctl.stopcondition()) break;
+            if (head.is_valid()) merged.merge(head.mesh);
         }
 
-        for(auto& stick : pillars()) {
-            if(m_ctl.stopcondition()) break;
+        for (auto &stick : pillars()) {
+            if (m_ctl.stopcondition()) break;
             merged.merge(stick.mesh);
             merged.merge(stick.base);
         }
 
-        for(auto& j : junctions()) {
-            if(m_ctl.stopcondition()) break;
+        for (auto &j : junctions()) {
+            if (m_ctl.stopcondition()) break;
             merged.merge(j.mesh);
         }
 
-        for(auto& cb : compact_bridges()) {
-            if(m_ctl.stopcondition()) break;
+        for (auto &cb : compact_bridges()) {
+            if (m_ctl.stopcondition()) break;
             merged.merge(cb.mesh);
         }
 
-        for(auto& bs : bridges()) {
-            if(m_ctl.stopcondition()) break;
+        for (auto &bs : bridges()) {
+            if (m_ctl.stopcondition()) break;
             merged.merge(bs.mesh);
         }
 
-        if(m_ctl.stopcondition()) {
+        if (m_ctl.stopcondition()) {
             // In case of failure we have to return an empty mesh
             meshcache = TriangleMesh();
             return meshcache;
         }
-
-        meshcache = mesh(merged);
         
+        meshcache = mesh(merged);
+
         // The mesh will be passed by const-pointer to TriangleMeshSlicer,
         // which will need this.
         if (!meshcache.empty()) meshcache.require_shared_vertices();
 
-        BoundingBoxf3&& bb = meshcache.bounding_box();
-        model_height = bb.max(Z) - bb.min(Z);
+        BoundingBoxf3 &&bb = meshcache.bounding_box();
+        model_height       = bb.max(Z) - bb.min(Z);
 
         meshcache_valid = true;
         return meshcache;
     }
 
     // WITH THE PAD
-    double full_height() const {
-        if(merged_mesh().empty() && !pad().empty())
+    double full_height() const
+    {
+        if (merged_mesh().empty() && !pad().empty())
             return get_pad_fullheight(pad().cfg);
 
         double h = mesh_height();
-        if(!pad().empty()) h += sla::get_pad_elevation(pad().cfg);
+        if (!pad().empty()) h += sla::get_pad_elevation(pad().cfg);
         return h;
     }
 
     // WITHOUT THE PAD!!!
-    double mesh_height() const {
-        if(!meshcache_valid) merged_mesh();
+    double mesh_height() const
+    {
+        if (!meshcache_valid) merged_mesh();
         return model_height;
     }
-    
-    // Intended to be called after the generation is fully complete
-    void merge_and_cleanup() {
-        merged_mesh(); // in case the mesh is not generated, it should be...
-        m_heads.clear();
-        m_pillars.clear();
-        m_junctions.clear();
-        m_bridges.clear();
-        m_compact_bridges.clear();
-    }
 
+    // Intended to be called after the generation is fully complete
+    void merge_and_cleanup()
+    {
+        merged_mesh(); // in case the mesh is not generated, it should be...
+        
+        // Doing clear() does not garantee to release the memory.
+        m_heads = {};
+        m_head_indices = {};
+        m_pillars = {};
+        m_junctions = {};
+        m_bridges = {};
+        m_compact_bridges = {};
+    }
 };
 
 // This function returns the position of the centroid in the input 'clust'
@@ -2510,7 +2535,6 @@ bool SLASupportTree::generate(const std::vector<SupportPoint> &support_points,
         default: ;
         }
         
-        BOOST_LOG_TRIVIAL(info) << stepstr[pc] << "...";
         ctl.statuscb(stepstate[pc], stepstr[pc]);
     };
 
@@ -2539,21 +2563,23 @@ std::vector<ExPolygons> SLASupportTree::slice(const std::vector<float> &heights,
     const TriangleMesh &pad_mesh = get_pad();
     
     std::vector<ExPolygons> sup_slices;
-    { 
+    if (!sup_mesh.empty()) { 
         TriangleMeshSlicer sup_slicer(&sup_mesh);
         sup_slicer.slice(heights, cr, &sup_slices, m_impl->ctl().cancelfn);
     }
     
     std::vector<ExPolygons> pad_slices;
-    { 
+    if (!pad_mesh.empty()) { 
         TriangleMeshSlicer pad_slicer(&pad_mesh);
         pad_slicer.slice(heights, cr, &pad_slices, m_impl->ctl().cancelfn);
     }
     
-    for (size_t i = 0; i < heights.size(); ++i) {
+    for (size_t i = 0;
+         i < heights.size() && i < pad_slices.size() && i < sup_slices.size();
+         ++i) {
         std::copy(pad_slices[i].begin(), pad_slices[i].end(),
                   std::back_inserter(sup_slices[i]));
-        pad_slices[i].clear(); pad_slices[i].shrink_to_fit(); 
+        pad_slices[i] = {}; 
     }
     
     return sup_slices;

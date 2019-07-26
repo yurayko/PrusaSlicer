@@ -318,6 +318,9 @@ template<class T, class O = T>
 using FloatingOnly = enable_if_t<std::is_floating_point<T>::value, O>;
 
 template<class T, class O = T>
+using IntegerOnly = enable_if_t<std::is_integral<T>::value, O>;
+
+template<class T, class O = T>
 using ScaledCoordOnly = enable_if_t<is_scaled_coord<T>::value, O>;
 
 template<class T, class O = T>
