@@ -2576,26 +2576,25 @@ std::vector<ExPolygons> SLASupportTree::slice(const std::vector<float> &heights,
         sup_slicer.slice(heights, cr, &sup_slices, m_impl->ctl().cancelfn);
     }
     
+    auto bb = pad_mesh.bounding_box();
+    auto maxzit = std::upper_bound(heights.begin(), heights.end(), bb.max.z());
+    std::vector<float> padgrid; padgrid.reserve(heights.end() - maxzit);
+    std::copy(heights.begin(), maxzit, std::back_inserter(padgrid));
+    
     std::vector<ExPolygons> pad_slices;
     if (!pad_mesh.empty()) { 
         TriangleMeshSlicer pad_slicer(&pad_mesh);
-        pad_slicer.slice(heights, cr, &pad_slices, m_impl->ctl().cancelfn);
+        pad_slicer.slice(padgrid, cr, &pad_slices, m_impl->ctl().cancelfn);
     }
     
-    for (size_t i = 0;
-         i < heights.size() && i < pad_slices.size() && i < sup_slices.size();
-         ++i) {
+    size_t len = std::min(heights.size(), pad_slices.size());
+    len = std::min(len, sup_slices.size());
+    
+    for (size_t i = 0; i < len; ++i) {
         std::copy(pad_slices[i].begin(), pad_slices[i].end(),
                   std::back_inserter(sup_slices[i]));
         pad_slices[i] = {}; 
     }
-    
-    size_t s = 0;
-    for (auto &sl : sup_slices)
-        for (auto &poly : sl) {
-            s += sizeof(double) * poly.contour.points.size();
-            for (auto &h : poly.holes) s += sizeof(double) * h.points.size();
-        }
     
     return sup_slices;
 }
