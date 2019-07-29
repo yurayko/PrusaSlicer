@@ -1920,8 +1920,9 @@ void SLAPrint::StatusReporter::operator()(SLAPrint &         p,
 {
     m_st = st;
     BOOST_LOG_TRIVIAL(info)
-        << st << "% " << msg << ": " << logmsg << log_memory_info();
-    
+        << st << "% " << msg << (logmsg.empty() ? "" : ": ") << logmsg
+        << log_memory_info();
+
     p.set_status(int(std::round(st)), msg, flags);
 }
 
