@@ -32,7 +32,7 @@ SettingsBundle FREQ_SETTINGS_BUNDLE_FFF =
     { L("Support material")     , { "support_material", "support_material_auto", "support_material_threshold", 
                                     "support_material_pattern", "support_material_buildplate_only",
                                     "support_material_spacing" } },
-    { L("Extruders")            , { "wipe_into_infill", "wipe_into_objects" } }
+    { L("Wipe options")            , { "wipe_into_infill", "wipe_into_objects" } }
 };
 
 // pt_SLA
@@ -87,6 +87,7 @@ ObjectList::ObjectList(wxWindow* parent) :
         CATEGORY_ICON[L("Speed")]                    = create_scaled_bitmap(nullptr, "time");
         CATEGORY_ICON[L("Extruders")]                = create_scaled_bitmap(nullptr, "funnel");
         CATEGORY_ICON[L("Extrusion Width")]          = create_scaled_bitmap(nullptr, "funnel");
+        CATEGORY_ICON[L("Wipe options")]             = create_scaled_bitmap(nullptr, "funnel");
 //         CATEGORY_ICON[L("Skirt and brim")]          = create_scaled_bitmap(nullptr, "skirt+brim"); 
 //         CATEGORY_ICON[L("Speed > Acceleration")]    = create_scaled_bitmap(nullptr, "time");
         CATEGORY_ICON[L("Advanced")]                 = create_scaled_bitmap(nullptr, "wrench");
@@ -560,6 +561,7 @@ void ObjectList::msw_rescale_icons()
         CATEGORY_ICON[L("Speed")]                    = create_scaled_bitmap(nullptr, "time");
         CATEGORY_ICON[L("Extruders")]                = create_scaled_bitmap(nullptr, "funnel");
         CATEGORY_ICON[L("Extrusion Width")]          = create_scaled_bitmap(nullptr, "funnel");
+        CATEGORY_ICON[L("Wipe options")]             = create_scaled_bitmap(nullptr, "funnel");
 //         CATEGORY_ICON[L("Skirt and brim")]          = create_scaled_bitmap(nullptr, "skirt+brim"); 
 //         CATEGORY_ICON[L("Speed > Acceleration")]    = create_scaled_bitmap(nullptr, "time");
         CATEGORY_ICON[L("Advanced")]                 = create_scaled_bitmap(nullptr, "wrench");
@@ -2793,26 +2795,35 @@ void ObjectList::update_selections_on_canvas()
 
     const int sel_cnt = GetSelectedItemsCount();
     if (sel_cnt == 0) {
-        selection.clear();
+        selection.remove_all();
         wxGetApp().plater()->canvas3D()->update_gizmos_on_off_state();
         return;
     }
 
-    auto add_to_selection = [this](const wxDataViewItem& item, Selection& selection, int instance_idx, bool as_single_selection)
+    std::vector<unsigned int> volume_idxs;
+    Selection::EMode mode = Selection::Volume;
+    auto add_to_selection = [this, &volume_idxs](const wxDataViewItem& item, const Selection& selection, int instance_idx, Selection::EMode& mode)
     {
         const ItemType& type = m_objects_model->GetItemType(item);
         const int obj_idx = m_objects_model->GetObjectIdByItem(item);
 
         if (type == itVolume) {
             const int vol_idx = m_objects_model->GetVolumeIdByItem(item);
-            selection.add_volume(obj_idx, vol_idx, std::max(instance_idx, 0), as_single_selection);
+            std::vector<unsigned int> idxs = selection.get_volume_idxs_from_volume(obj_idx, std::max(instance_idx, 0), vol_idx);
+            volume_idxs.insert(volume_idxs.end(), idxs.begin(), idxs.end());
         }
         else if (type == itInstance) {
             const int inst_idx = m_objects_model->GetInstanceIdByItem(item);
-            selection.add_instance(obj_idx, inst_idx, as_single_selection);
+            mode = Selection::Instance;
+            std::vector<unsigned int> idxs = selection.get_volume_idxs_from_instance(obj_idx, inst_idx);
+            volume_idxs.insert(volume_idxs.end(), idxs.begin(), idxs.end());
         }
         else
-            selection.add_object(obj_idx, as_single_selection);
+        {
+            mode = Selection::Instance;
+            std::vector<unsigned int> idxs = selection.get_volume_idxs_from_object(obj_idx);
+            volume_idxs.insert(volume_idxs.end(), idxs.begin(), idxs.end());
+        }
     };
 
     // stores current instance idx before to clear the selection
@@ -2821,21 +2832,38 @@ void ObjectList::update_selections_on_canvas()
     if (sel_cnt == 1) {
         wxDataViewItem item = GetSelection();
         if (m_objects_model->GetItemType(item) & (itSettings | itInstanceRoot | itLayerRoot | itLayer))
-            add_to_selection(m_objects_model->GetParent(item), selection, instance_idx, true);
+            add_to_selection(m_objects_model->GetParent(item), selection, instance_idx, mode);
         else
-            add_to_selection(item, selection, instance_idx, true);
-
-        wxGetApp().plater()->canvas3D()->update_gizmos_on_off_state();
-        wxGetApp().plater()->canvas3D()->render();
-        return;
+            add_to_selection(item, selection, instance_idx, mode);
     }
-    
-    wxDataViewItemArray sels;
-    GetSelections(sels);
+    else
+    {
+        wxDataViewItemArray sels;
+        GetSelections(sels);
 
-    selection.clear();
-    for (auto item: sels)
-        add_to_selection(item, selection, instance_idx, false);
+        for (auto item : sels)
+        {
+            add_to_selection(item, selection, instance_idx, mode);
+        }
+    }
+
+    if (selection.contains_all_volumes(volume_idxs))
+    {
+        // remove
+        volume_idxs = selection.get_missing_volume_idxs_from(volume_idxs);
+        if (volume_idxs.size() > 0)
+        {
+            Plater::TakeSnapshot snapshot(wxGetApp().plater(), _(L("Selection-Remove from list")));
+            selection.remove_volumes(mode, volume_idxs);
+        }
+    }
+    else
+    {
+        // add
+        volume_idxs = selection.get_unselected_volume_idxs_from(volume_idxs);
+        Plater::TakeSnapshot snapshot(wxGetApp().plater(), _(L("Selection-Add from list")));
+        selection.add_volumes(mode, volume_idxs, sel_cnt == 1);
+    }
 
     wxGetApp().plater()->canvas3D()->update_gizmos_on_off_state();
     wxGetApp().plater()->canvas3D()->render();

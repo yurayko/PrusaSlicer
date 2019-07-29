@@ -1722,8 +1722,7 @@ void GLCanvas3D::select_all()
 
 void GLCanvas3D::deselect_all()
 {
-    m_selection.clear();
-    m_selection.set_mode(Selection::Instance);
+    m_selection.remove_all();
     wxGetApp().obj_manipul()->set_dirty();
     m_gizmos.reset_all_states();
     m_gizmos.update_data();
@@ -2378,12 +2377,9 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
             post_event(SimpleEvent(EVT_GLCANVAS_UNDO));
         break;
 
-#ifdef __APPLE__
-        case WXK_BACK: // the low cost Apple solutions are not equipped with a Delete key, use Backspace instead.
-#else /* __APPLE__ */
+        case WXK_BACK:
         case WXK_DELETE:
-#endif /* __APPLE__ */
-                            post_event(SimpleEvent(EVT_GLTOOLBAR_DELETE_ALL)); break;
+             post_event(SimpleEvent(EVT_GLTOOLBAR_DELETE_ALL)); break;
 		default:            evt.Skip();
         }
     } else if (evt.HasModifiers()) {
@@ -2391,11 +2387,8 @@ void GLCanvas3D::on_char(wxKeyEvent& evt)
     } else {
         switch (keyCode)
         {
-#ifdef __APPLE__
-        case WXK_BACK: // the low cost Apple solutions are not equipped with a Delete key, use Backspace instead.
-#else /* __APPLE__ */
+        case WXK_BACK:
 		case WXK_DELETE:
-#endif /* __APPLE__ */
                   post_event(SimpleEvent(EVT_GLTOOLBAR_DELETE));
                   break;
         case WXK_ESCAPE: { deselect_all(); break; }
@@ -5645,7 +5638,7 @@ void GLCanvas3D::_update_selection_from_hover()
     if (m_hover_volume_idxs.empty())
     {
         if (!ctrl_pressed && (m_rectangle_selection.get_state() == GLSelectionRectangle::Select))
-            m_selection.clear();
+            m_selection.remove_all();
 
         return;
     }
@@ -5661,6 +5654,51 @@ void GLCanvas3D::_update_selection_from_hover()
             break;
         }
     }
+
+    bool selection_changed = false;
+    if (state == GLSelectionRectangle::Select)
+    {
+        bool contains_all = true;
+        for (int i : m_hover_volume_idxs)
+        {
+            if (!m_selection.contains_volume((unsigned int)i))
+            {
+                contains_all = false;
+                break;
+            }
+        }
+
+        // the selection is going to be modified (Add)
+        if (!contains_all)
+        {
+            wxGetApp().plater()->take_snapshot(_(L("Selection-Add from rectangle")));
+            selection_changed = true;
+        }
+    }
+    else
+    {
+        bool contains_any = false;
+        for (int i : m_hover_volume_idxs)
+        {
+            if (m_selection.contains_volume((unsigned int)i))
+            {
+                contains_any = true;
+                break;
+            }
+        }
+
+        // the selection is going to be modified (Remove)
+        if (contains_any)
+        {
+            wxGetApp().plater()->take_snapshot(_(L("Selection-Remove from rectangle")));
+            selection_changed = true;
+        }
+    }
+
+    if (!selection_changed)
+        return;
+
+    Plater::SuppressSnapshots suppress(wxGetApp().plater());
 
     if ((state == GLSelectionRectangle::Select) && !ctrl_pressed)
         m_selection.clear();
