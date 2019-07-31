@@ -623,7 +623,7 @@ struct Pad {
                 scaled<float>(pcfg.min_wall_thickness_mm));
 
             // Punching the breaksticks across the offsetted polygon perimeters
-            ExPolygons pad_stickholes; pad_stickholes.reserve(modelbase.size());
+            auto pad_stickholes = reserve_vector<ExPolygon>(modelbase.size());
             for(auto& poly : modelbase_offs) {
                 
                 bool overlap = false;
@@ -2328,9 +2328,8 @@ public:
                 // 20 angles will be tried...
                 alpha += 0.1 * PI;
             }
-
-            std::vector<long> newpills;
-            newpills.reserve(needpillars);
+            
+            auto newpills = reserve_vector<long>(needpillars);
 
             if(found) for(unsigned n = 0; n < needpillars; n++) {
                 Vec3d s = spts[n]; 
@@ -2578,7 +2577,8 @@ std::vector<ExPolygons> SLASupportTree::slice(const std::vector<float> &heights,
     
     auto bb = pad_mesh.bounding_box();
     auto maxzit = std::upper_bound(heights.begin(), heights.end(), bb.max.z());
-    std::vector<float> padgrid; padgrid.reserve(heights.end() - maxzit);
+    
+    auto padgrid = reserve_vector<float>(heights.end() - maxzit);
     std::copy(heights.begin(), maxzit, std::back_inserter(padgrid));
     
     std::vector<ExPolygons> pad_slices;

@@ -401,9 +401,8 @@ void breakstick_holes(ExPolygon& poly,
         // The connector stick will be a small rectangle with dimensions
         // stick_width x (penetration + padding) to have some penetration
         // into the input polygon.
-
-        Points out;
-        out.reserve(2 * pts.size()); // output polygon points
+        
+        Points out = reserve_vector<Point>(2 * pts.size()); // output points
 
         // stick bottom and right edge dimensions
         double sbottom = scaled(stick_width);
@@ -608,7 +607,7 @@ ConcaveHull::ConcaveHull(const Polygons &polys,
     if(punion.size() == 1) { polygons = std::move(punion); return; }
 
     // We get the centroids of all the islands in the 2D slice
-    Points centroids; centroids.reserve(punion.size());
+    Points centroids = reserve_vector<Point>(punion.size());
     std::transform(punion.begin(), punion.end(), std::back_inserter(centroids),
                    [](const Polygon& poly) { return centroid(poly); });
 
@@ -678,14 +677,14 @@ void base_plate(const TriangleMesh &      mesh,
     //    m.require_shared_vertices(); // TriangleMeshSlicer needs this    
     TriangleMeshSlicer slicer(&mesh);
     
-    std::vector<ExPolygons> out; out.reserve(heights.size());
+    auto out = reserve_vector<ExPolygons>(heights.size());
     slicer.slice(heights, 0.f, &out, thrfn);
     
     size_t count = 0; for(auto& o : out) count += o.size();
     
     // Now we have to unify all slice layers which can be an expensive operation
     // so we will try to simplify the polygons
-    ExPolygons tmp; tmp.reserve(count);
+    ExPolygons tmp = reserve_vector<ExPolygon>(count);
     for(ExPolygons& o : out)
         for(ExPolygon& e : o) {
             auto&& exss = e.simplify(scaled<double>(0.1));

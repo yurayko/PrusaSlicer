@@ -1016,22 +1016,21 @@ void SLAPrint::process()
             return;
 
         if(sd && sd->support_tree_ptr) {
+            
+            auto heights = reserve_vector<float>(po.m_slice_index.size());
 
-            std::vector<float> heights; heights.reserve(po.m_slice_index.size());
-
-            for(auto& rec : po.m_slice_index) {
+            for(auto& rec : po.m_slice_index)
                 heights.emplace_back(rec.slice_level());
-            }
 
             sd->support_slices = sd->support_tree_ptr->slice(
-                        heights, float(po.config().slice_closing_radius.value));
+                heights, float(po.config().slice_closing_radius.value));
         }
 
         double doffs = m_printer_config.absolute_correction.getFloat();
         coord_t clpr_offs = scaled(doffs);
-        for(size_t i = 0;
-            i < sd->support_slices.size() && i < po.m_slice_index.size();
-            ++i)
+        auto len = std::min(sd->support_slices.size(), po.m_slice_index.size());
+        
+        for(size_t i = 0; i < len; ++i)
         {
             // We apply the printer correction offset here.
             if(clpr_offs != 0)
@@ -1861,8 +1860,7 @@ std::vector<sla::SupportPoint> SLAPrintObject::transformed_support_points() cons
     std::vector<sla::SupportPoint>& spts = m_model_object->sla_support_points;
 
     // this could be cached as well
-    std::vector<sla::SupportPoint> ret;
-    ret.reserve(spts.size());
+    auto ret = reserve_vector<sla::SupportPoint>(spts.size());
 
     for(sla::SupportPoint& sp : spts) {
         Vec3f transformed_pos = trafo().cast<float>() * sp.pos;
