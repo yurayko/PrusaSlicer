@@ -1155,7 +1155,7 @@ class SLASupportTree::Algorithm {
         // inner surface of the mesh.
         Vec3d v = dir;     // Our direction (axis)
         Vec3d c = s + width * dir;
-        const double& sd = m_cfg.safety_distance_mm;
+        const double sd = m_cfg.safety_distance_mm;
 
         // Two vectors that will be perpendicular to each other and to the
         // axis. Values for a(X) and a(Y) are now arbitrary, a(Z) is just a
@@ -1269,7 +1269,7 @@ class SLASupportTree::Algorithm {
 
         // helper vector calculations
         Vec3d a(0, 1, 0), b;
-        const double& sd = m_cfg.safety_distance_mm;
+        const double sd = m_cfg.safety_distance_mm;
 
         // INFO: for explanation of the method used here, see the previous
         // method's comments.

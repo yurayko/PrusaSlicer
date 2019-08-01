@@ -13,15 +13,10 @@ namespace Slic3r {
 class GCodeWriter {
 public:
     GCodeConfig config;
-    bool multiple_extruders;
-    
-    GCodeWriter() : 
-        multiple_extruders(false), m_extrusion_axis("E"), m_extruder(nullptr),
-        m_single_extruder_multi_material(false),
-        m_last_acceleration(0), m_max_acceleration(0), m_last_fan_speed(0), 
-        m_last_bed_temperature(0), m_last_bed_temperature_reached(true), 
-        m_lifted(0)
-        {}
+    bool        multiple_extruders{false};
+
+    GCodeWriter() = default;
+
     Extruder*            extruder()             { return m_extruder; }
     const Extruder*      extruder()     const   { return m_extruder; }
 
@@ -70,17 +65,17 @@ public:
 
 private:
     std::vector<Extruder>    m_extruders;
-    std::string     m_extrusion_axis;
-    bool            m_single_extruder_multi_material;
-    Extruder*       m_extruder;
-    unsigned int    m_last_acceleration;
+    std::string     m_extrusion_axis{"E"};
+    bool            m_single_extruder_multi_material{false};
+    Extruder*       m_extruder {nullptr};
+    unsigned int    m_last_acceleration{0};
     // Limit for setting the acceleration, to respect the machine limits set for the Marlin firmware.
     // If set to zero, the limit is not in action.
-    unsigned int    m_max_acceleration;
-    unsigned int    m_last_fan_speed;
-    unsigned int    m_last_bed_temperature;
-    bool            m_last_bed_temperature_reached;
-    double          m_lifted;
+    unsigned int    m_max_acceleration{0};
+    unsigned int    m_last_fan_speed{0};
+    unsigned int    m_last_bed_temperature{m_last_acceleration};
+    bool            m_last_bed_temperature_reached{true};
+    double          m_lifted{0.};
     Vec3d           m_pos = Vec3d::Zero();
 
     std::string _travel_to_z(double z, const std::string &comment);

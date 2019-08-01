@@ -188,6 +188,7 @@ public:
     // If the rhs ConfigOption is scalar, then its value is used,
     // otherwise for each of rhs, the first value of a vector is used.
     // This function is useful to collect values for multiple extrder / filament settings.
+    void set(const ConfigOption *) override = 0;
     virtual void set(const std::vector<const ConfigOption*> &rhs) = 0;
     // Set a single vector item from either a scalar option or the first value of a vector option.vector of ConfigOptions. 
     // This function is useful to split values from multiple extrder / filament settings into separate configurations.
@@ -202,6 +203,7 @@ public:
     // Is this vector empty?
     virtual bool   empty() const = 0;
     // Is the value nil? That should only be possible if this->nullable().
+    bool   is_nil() const override { return false; }
     virtual bool   is_nil(size_t idx) const = 0;
 
 protected:
@@ -544,7 +546,7 @@ public:
     static ConfigOptionType static_type() { return coInt; }
     ConfigOptionType        type()   const override { return static_type(); }
     int                     getInt() const override { return this->value; }
-    void                    setInt(int val) { this->value = val; }
+    void                    setInt(int val) override { this->value = val; }
     ConfigOption*           clone()  const override { return new ConfigOptionInt(*this); }
     bool                    operator==(const ConfigOptionInt &rhs) const { return this->value == rhs.value; }
     

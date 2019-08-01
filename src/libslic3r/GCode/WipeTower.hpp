@@ -89,8 +89,8 @@ public:
 		m_y_shift(0.f),
 		m_z_pos(0.f),
 		m_is_first_layer(false),
-        m_gcode_flavor(flavor),
         m_bridging(bridging),
+        m_gcode_flavor(flavor),
         m_current_tool(initial_tool),
         wipe_volumes(wiping_matrix)
         {

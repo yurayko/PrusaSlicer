@@ -465,7 +465,7 @@ public:
         coordf_t        support_spacing, 
         coordf_t        support_angle) :
         m_support_polygons(&support_polygons), m_trimming_polygons(&trimming_polygons),
-        m_support_spacing(support_spacing), m_support_angle(support_angle)
+        m_support_angle(support_angle), m_support_spacing(support_spacing)
     {
         if (m_support_angle != 0.) {
             // Create a copy of the rotated contours.
@@ -1566,7 +1566,7 @@ PrintObjectSupportMaterial::MyLayersPtr PrintObjectSupportMaterial::bottom_conta
                 });
 
             Polygons &layer_support_area = layer_support_areas[layer_id];
-            task_group.run([this, &projection, &projection_raw, &layer, &layer_support_area, layer_id] {
+            task_group.run([this, &projection, &projection_raw, &layer, &layer_support_area] {
                 // Remove the areas that touched from the projection that will continue on next, lower, top surfaces.
     //            Polygons trimming = union_(to_polygons(layer.slices.expolygons), touching, true);
                 Polygons trimming = offset(layer.slices.expolygons, float(SCALED_EPSILON));
@@ -1708,7 +1708,7 @@ void PrintObjectSupportMaterial::trim_top_contacts_by_bottom_contacts(
     const PrintObject &object, const MyLayersPtr &bottom_contacts, MyLayersPtr &top_contacts) const
 {
     tbb::parallel_for(tbb::blocked_range<int>(0, int(top_contacts.size())),
-        [this, &object, &bottom_contacts, &top_contacts](const tbb::blocked_range<int>& range) {
+        [&bottom_contacts, &top_contacts](const tbb::blocked_range<int>& range) {
             int idx_bottom_overlapping_first = -2;
             // For all top contact layers, counting downwards due to the way idx_higher_or_equal caches the last index to avoid repeated binary search.
             for (int idx_top = range.end() - 1; idx_top >= range.begin(); -- idx_top) {
@@ -1937,7 +1937,7 @@ void PrintObjectSupportMaterial::generate_base_layers(
     BOOST_LOG_TRIVIAL(debug) << "PrintObjectSupportMaterial::generate_base_layers() in parallel - start";
     tbb::parallel_for(
         tbb::blocked_range<size_t>(0, intermediate_layers.size()),
-        [this, &object, &bottom_contacts, &top_contacts, &intermediate_layers, &layer_support_areas](const tbb::blocked_range<size_t>& range) {
+        [&object, &bottom_contacts, &top_contacts, &intermediate_layers, &layer_support_areas](const tbb::blocked_range<size_t>& range) {
             // index -2 means not initialized yet, -1 means intialized and decremented to 0 and then -1.
             int idx_top_contact_above           = -2;
             int idx_bottom_contact_overlapping  = -2;
@@ -2125,7 +2125,7 @@ void PrintObjectSupportMaterial::trim_support_layers_by_object(
                 }
                 // $layer->slices contains the full shape of layer, thus including
                 // perimeter's width. $support contains the full shape of support
-                // material, thus including the width of its foremost extrusion.
+                // material, thus including the width of its foremost extrusion.
                 // We leave a gap equal to a full extrusion width.
                 support_layer.polygons = diff(support_layer.polygons, polygons_trimming);
             }
@@ -2300,27 +2300,27 @@ PrintObjectSupportMaterial::MyLayersPtr PrintObjectSupportMaterial::generate_int
     return interface_layers;
 }
 
-static inline void fill_expolygons_generate_paths(
-    ExtrusionEntitiesPtr    &dst, 
-    const ExPolygons        &expolygons,
-    Fill                    *filler,
-    float                    density,
-    ExtrusionRole            role, 
-    const Flow              &flow)
-{
-    FillParams fill_params;
-    fill_params.density = density;
-    fill_params.complete = true;
-    fill_params.dont_adjust = true;
-    for (const ExPolygon &expoly : expolygons) {
-        Surface surface(stInternal, expoly);
-        extrusion_entities_append_paths(
-            dst,
-            filler->fill_surface(&surface, fill_params),
-            role, 
-            flow.mm3_per_mm(), flow.width, flow.height);
-    }
-}
+//static inline void fill_expolygons_generate_paths(
+//    ExtrusionEntitiesPtr    &dst,
+//    const ExPolygons        &expolygons,
+//    Fill                    *filler,
+//    float                    density,
+//    ExtrusionRole            role,
+//    const Flow              &flow)
+//{
+//    FillParams fill_params;
+//    fill_params.density = density;
+//    fill_params.complete = true;
+//    fill_params.dont_adjust = true;
+//    for (const ExPolygon &expoly : expolygons) {
+//        Surface surface(stInternal, expoly);
+//        extrusion_entities_append_paths(
+//            dst,
+//            filler->fill_surface(&surface, fill_params),
+//            role,
+//            flow.mm3_per_mm(), flow.width, flow.height);
+//    }
+//}
 
 static inline void fill_expolygons_generate_paths(
     ExtrusionEntitiesPtr    &dst,
@@ -3217,7 +3217,7 @@ void PrintObjectSupportMaterial::generate_toolpaths(
                     density = 0.5f;
                     flow = m_first_layer_flow;
                     // use the proper spacing for first layer as we don't need to align
-                    // its pattern to the other layers
+                    // its pattern to the other layers
                     //FIXME When paralellizing, each thread shall have its own copy of the fillers.
                     filler->spacing = flow.spacing();
                     filler->link_max_length = coord_t(scale_(filler->spacing * link_max_length_factor / density));

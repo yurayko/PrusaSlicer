@@ -285,7 +285,7 @@ inline C<remove_cvref_t<T>> linspace(const T &start, const T &stop, const I &n)
 template<class T, template<class> class C = DefaultContainer>
 inline C<remove_cvref_t<T>> grid(const T &start, const T &stop, const T &stride)
 {
-    Container<C, T> vals(size_t(std::ceil((stop - start) / stride)), T());
+    C<remove_cvref_t<T>> vals(size_t(std::ceil((stop - start) / stride)), T());
     
     int i = 0;
     std::generate(vals.begin(), vals.end(), [&i, start, stride] {

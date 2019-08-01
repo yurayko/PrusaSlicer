@@ -11,11 +11,11 @@ template <class PointClass>
 class BoundingBoxBase
 {
 public:
-    PointClass min;
-    PointClass max;
-    bool defined;
+    PointClass min {PointClass::Zero()};
+    PointClass max {PointClass::Zero()};
+    bool defined {false};
     
-    BoundingBoxBase() : defined(false), min(PointClass::Zero()), max(PointClass::Zero()) {}
+    BoundingBoxBase() = default;
     BoundingBoxBase(const PointClass &pmin, const PointClass &pmax) : 
         min(pmin), max(pmax), defined(pmin(0) < pmax(0) && pmin(1) < pmax(1)) {}
     BoundingBoxBase(const std::vector<PointClass>& points) : min(PointClass::Zero()), max(PointClass::Zero())

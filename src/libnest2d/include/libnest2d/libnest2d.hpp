@@ -827,7 +827,7 @@ public:
     inline ItemIteratorOnly<It, void> execute(It from, It to)
     {
         auto infl = static_cast<Coord>(std::ceil(min_obj_distance_/2.0));
-        if(infl > 0) std::for_each(from, to, [this, infl](Item& item) {
+        if(infl > 0) std::for_each(from, to, [infl](Item& item) {
             item.inflate(infl);
         });
         

@@ -185,7 +185,7 @@ private:
 
     SLAAutoSupports::Config m_config;
 
-    float m_supports_force_total = 0.f;
+    // float m_supports_force_total = 0.f;
 
     void process(const std::vector<ExPolygons>& slices, const std::vector<float>& heights);
     void uniformly_cover(const ExPolygons& islands, Structure& structure, PointGrid3D &grid3d, bool is_new_island = false, bool just_one = false);

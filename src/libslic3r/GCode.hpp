@@ -142,17 +142,17 @@ public:
         m_layer_index(-1), 
         m_layer(nullptr), 
         m_volumetric_speed(0),
-        m_last_pos_defined(false),
         m_last_extrusion_role(erNone),
         m_last_mm3_per_mm(GCodeAnalyzer::Default_mm3_per_mm),
         m_last_width(GCodeAnalyzer::Default_Width),
         m_last_height(GCodeAnalyzer::Default_Height),
+        m_last_pos_defined(false),
         m_brim_done(false),
         m_second_layer_things_done(false),
+        m_last_obj_copy(nullptr, Point(std::numeric_limits<coord_t>::max(), std::numeric_limits<coord_t>::max())),
         m_normal_time_estimator(GCodeTimeEstimator::Normal),
         m_silent_time_estimator(GCodeTimeEstimator::Silent),
-        m_silent_time_estimator_enabled(false),
-        m_last_obj_copy(nullptr, Point(std::numeric_limits<coord_t>::max(), std::numeric_limits<coord_t>::max()))
+        m_silent_time_estimator_enabled(false)
         {}
     ~GCode() {}
 

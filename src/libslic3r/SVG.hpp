@@ -13,23 +13,34 @@ namespace Slic3r {
 class SVG
 {
 public:
-    bool arrows;
-    std::string fill, stroke;
+    bool arrows {false};
+    std::string fill{"grey"}, stroke{"black"};
     Point origin;
-    bool flipY;
+    bool flipY{false};
 
-    SVG(const char* afilename) :
-        arrows(false), fill("grey"), stroke("black"), filename(afilename), flipY(false)
-        { open(filename); }
-    SVG(const char* afilename, const BoundingBox &bbox, const coord_t bbox_offset = scale_(1.), bool aflipY = false) : 
-        arrows(false), fill("grey"), stroke("black"), filename(afilename), origin(bbox.min - Point(bbox_offset, bbox_offset)), flipY(aflipY)
-        { open(filename, bbox, bbox_offset, aflipY); }
-    SVG(const std::string &filename) :
-        arrows(false), fill("grey"), stroke("black"), filename(filename), flipY(false)
-        { open(filename); }
-    SVG(const std::string &filename, const BoundingBox &bbox, const coord_t bbox_offset = scale_(1.), bool aflipY = false) : 
-        arrows(false), fill("grey"), stroke("black"), filename(filename), origin(bbox.min - Point(bbox_offset, bbox_offset)), flipY(aflipY)
-        { open(filename, bbox, bbox_offset, aflipY); }
+    SVG(const char* afilename) : filename(afilename) { open(filename); }
+    SVG(const char *       afilename,
+        const BoundingBox &bbox,
+        const coord_t      bbox_offset = scale_(1.),
+        bool               aflipY      = false)
+        : origin(bbox.min - Point(bbox_offset, bbox_offset))
+        , flipY(aflipY)
+        , filename(afilename)
+    {
+        open(filename, bbox, bbox_offset, aflipY);
+    }
+
+    SVG(const std::string &filename) : filename(filename) { open(filename); }
+    SVG(const std::string &filename,
+        const BoundingBox &bbox,
+        const coord_t      bbox_offset = scale_(1.),
+        bool               aflipY      = false)
+        : origin(bbox.min - Point(bbox_offset, bbox_offset))
+        , flipY(aflipY)
+        , filename(filename)
+    {
+        open(filename, bbox, bbox_offset, aflipY);
+    }
     ~SVG() { if (f != NULL) Close(); }
 
     bool open(const char* filename);

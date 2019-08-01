@@ -286,7 +286,7 @@ public:
     Print() {}
 	virtual ~Print() { this->clear(); }
 
-	PrinterTechnology	technology() const noexcept { return ptFFF; }
+    PrinterTechnology	technology() const noexcept override { return ptFFF; }
 
     // Methods, which change the state of Print / PrintObject / PrintRegion.
     // The following methods are synchronized with process() and export_gcode(),

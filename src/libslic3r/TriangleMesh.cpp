@@ -1071,65 +1071,65 @@ TriangleMeshSlicer::FacetSliceType TriangleMeshSlicer::slice_facet(
 // and sets edges of vertical triangles to produce only a single edge per pair of neighbor faces.
 // So the following code makes only sense now to handle degenerate meshes with more than two faces
 // sharing a single edge.
-static inline void remove_tangent_edges(std::vector<IntersectionLine> &lines)
-{
-    std::vector<IntersectionLine*> by_vertex_pair;
-    by_vertex_pair.reserve(lines.size());
-    for (IntersectionLine& line : lines)
-        if (line.edge_type != feGeneral && line.a_id != -1)
-            // This is a face edge. Check whether there is its neighbor stored in lines.
-            by_vertex_pair.emplace_back(&line);
-    auto edges_lower_sorted = [](const IntersectionLine *l1, const IntersectionLine *l2) {
-        // Sort vertices of l1, l2 lexicographically
-        int l1a = l1->a_id;
-        int l1b = l1->b_id;
-        int l2a = l2->a_id;
-        int l2b = l2->b_id;
-        if (l1a > l1b)
-            std::swap(l1a, l1b);
-        if (l2a > l2b)
-            std::swap(l2a, l2b);
-        // Lexicographical "lower" operator on lexicographically sorted vertices should bring equal edges together when sored.
-        return l1a < l2a || (l1a == l2a && l1b < l2b);
-    };
-    std::sort(by_vertex_pair.begin(), by_vertex_pair.end(), edges_lower_sorted);
-    for (auto line = by_vertex_pair.begin(); line != by_vertex_pair.end(); ++ line) {
-        IntersectionLine &l1 = **line;
-        if (! l1.skip()) {
-            // Iterate as long as line and line2 edges share the same end points.
-            for (auto line2 = line + 1; line2 != by_vertex_pair.end() && ! edges_lower_sorted(*line, *line2); ++ line2) {
-                // Lines must share the end points.
-                assert(! edges_lower_sorted(*line, *line2));
-                assert(! edges_lower_sorted(*line2, *line));
-                IntersectionLine &l2 = **line2;
-                if (l2.skip())
-                    continue;
-                if (l1.a_id == l2.a_id) {
-                    assert(l1.b_id == l2.b_id);
-                    l2.set_skip();
-                    // If they are both oriented upwards or downwards (like a 'V'),
-                    // then we can remove both edges from this layer since it won't 
-                    // affect the sliced shape.
-                    // If one of them is oriented upwards and the other is oriented
-                    // downwards, let's only keep one of them (it doesn't matter which
-                    // one since all 'top' lines were reversed at slicing).
-                    if (l1.edge_type == l2.edge_type) {
-                        l1.set_skip();
-                        break;
-                    }
-                } else {
-                    assert(l1.a_id == l2.b_id && l1.b_id == l2.a_id);
-                    // If this edge joins two horizontal facets, remove both of them.
-                    if (l1.edge_type == feHorizontal && l2.edge_type == feHorizontal) {
-                        l1.set_skip();
-                        l2.set_skip();
-                        break;
-                    }
-                }
-            }
-        }
-    }
-}
+//static inline void remove_tangent_edges(std::vector<IntersectionLine> &lines)
+//{
+//    std::vector<IntersectionLine*> by_vertex_pair;
+//    by_vertex_pair.reserve(lines.size());
+//    for (IntersectionLine& line : lines)
+//        if (line.edge_type != feGeneral && line.a_id != -1)
+//            // This is a face edge. Check whether there is its neighbor stored in lines.
+//            by_vertex_pair.emplace_back(&line);
+//    auto edges_lower_sorted = [](const IntersectionLine *l1, const IntersectionLine *l2) {
+//        // Sort vertices of l1, l2 lexicographically
+//        int l1a = l1->a_id;
+//        int l1b = l1->b_id;
+//        int l2a = l2->a_id;
+//        int l2b = l2->b_id;
+//        if (l1a > l1b)
+//            std::swap(l1a, l1b);
+//        if (l2a > l2b)
+//            std::swap(l2a, l2b);
+//        // Lexicographical "lower" operator on lexicographically sorted vertices should bring equal edges together when sored.
+//        return l1a < l2a || (l1a == l2a && l1b < l2b);
+//    };
+//    std::sort(by_vertex_pair.begin(), by_vertex_pair.end(), edges_lower_sorted);
+//    for (auto line = by_vertex_pair.begin(); line != by_vertex_pair.end(); ++ line) {
+//        IntersectionLine &l1 = **line;
+//        if (! l1.skip()) {
+//            // Iterate as long as line and line2 edges share the same end points.
+//            for (auto line2 = line + 1; line2 != by_vertex_pair.end() && ! edges_lower_sorted(*line, *line2); ++ line2) {
+//                // Lines must share the end points.
+//                assert(! edges_lower_sorted(*line, *line2));
+//                assert(! edges_lower_sorted(*line2, *line));
+//                IntersectionLine &l2 = **line2;
+//                if (l2.skip())
+//                    continue;
+//                if (l1.a_id == l2.a_id) {
+//                    assert(l1.b_id == l2.b_id);
+//                    l2.set_skip();
+//                    // If they are both oriented upwards or downwards (like a 'V'),
+//                    // then we can remove both edges from this layer since it won't
+//                    // affect the sliced shape.
+//                    // If one of them is oriented upwards and the other is oriented
+//                    // downwards, let's only keep one of them (it doesn't matter which
+//                    // one since all 'top' lines were reversed at slicing).
+//                    if (l1.edge_type == l2.edge_type) {
+//                        l1.set_skip();
+//                        break;
+//                    }
+//                } else {
+//                    assert(l1.a_id == l2.b_id && l1.b_id == l2.a_id);
+//                    // If this edge joins two horizontal facets, remove both of them.
+//                    if (l1.edge_type == feHorizontal && l2.edge_type == feHorizontal) {
+//                        l1.set_skip();
+//                        l2.set_skip();
+//                        break;
+//                    }
+//                }
+//            }
+//        }
+//    }
+//}
 
 
 struct OpenPolyline {

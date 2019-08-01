@@ -53,8 +53,8 @@ namespace nowide {
             buffer_size_(4),
             buffer_(0),
             file_(0),
-            own_(true),
-            mode_(std::ios::in | std::ios::out)
+            own_(true)
+//            mode_(std::ios::in | std::ios::out)
         {
             setg(0,0,0);
             setp(0,0);
@@ -392,7 +392,7 @@ namespace nowide {
         FILE *file_;
         bool own_;
         char last_char_;
-        std::ios::openmode mode_;
+        //std::ios::openmode mode_;
     };
     
     ///

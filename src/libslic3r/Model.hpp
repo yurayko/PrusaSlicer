@@ -304,10 +304,10 @@ public:
 private:
     friend class Model;
     // This constructor assigns new ID to this ModelObject and its config.
-	explicit ModelObject(Model *model) : m_model(model), origin_translation(Vec3d::Zero()),
+    explicit ModelObject(Model *model) : origin_translation(Vec3d::Zero()), m_model(model),
         m_bounding_box_valid(false), m_raw_bounding_box_valid(false), m_raw_mesh_bounding_box_valid(false)
         { assert(this->id().valid()); }
-	explicit ModelObject(int) : ObjectBase(-1), config(-1), m_model(nullptr), origin_translation(Vec3d::Zero()), m_bounding_box_valid(false), m_raw_bounding_box_valid(false), m_raw_mesh_bounding_box_valid(false)
+    explicit ModelObject(int) : ObjectBase(-1), config(-1), origin_translation(Vec3d::Zero()), m_model(nullptr), m_bounding_box_valid(false), m_raw_bounding_box_valid(false), m_raw_mesh_bounding_box_valid(false)
 		{ assert(this->id().invalid()); assert(this->config.id().invalid()); }
 	~ModelObject();
 	void assign_new_unique_ids_recursive() override;
@@ -513,21 +513,21 @@ private:
     //      1   ->   is splittable
     mutable int               		m_is_splittable{ -1 };
 
-	ModelVolume(ModelObject *object, const TriangleMesh &mesh) : m_mesh(new TriangleMesh(mesh)), m_type(ModelVolumeType::MODEL_PART), object(object)
+    ModelVolume(ModelObject *object, const TriangleMesh &mesh) : object(object), m_mesh(new TriangleMesh(mesh)), m_type(ModelVolumeType::MODEL_PART)
     {
 		assert(this->id().valid()); assert(this->config.id().valid()); assert(this->id() != this->config.id());
         if (mesh.stl.stats.number_of_facets > 1)
             calculate_convex_hull();
     }
     ModelVolume(ModelObject *object, TriangleMesh &&mesh, TriangleMesh &&convex_hull) :
-		m_mesh(new TriangleMesh(std::move(mesh))), m_convex_hull(new TriangleMesh(std::move(convex_hull))), m_type(ModelVolumeType::MODEL_PART), object(object) {
+        object(object), m_mesh(new TriangleMesh(std::move(mesh))), m_type(ModelVolumeType::MODEL_PART), m_convex_hull(new TriangleMesh(std::move(convex_hull))) {
 		assert(this->id().valid()); assert(this->config.id().valid()); assert(this->id() != this->config.id());
 	}
 
     // Copying an existing volume, therefore this volume will get a copy of the ID assigned.
     ModelVolume(ModelObject *object, const ModelVolume &other) :
         ObjectBase(other),
-        name(other.name), m_mesh(other.m_mesh), m_convex_hull(other.m_convex_hull), config(other.config), m_type(other.m_type), object(object), m_transformation(other.m_transformation)
+        name(other.name), config(other.config), object(object), m_mesh(other.m_mesh), m_type(other.m_type), m_convex_hull(other.m_convex_hull), m_transformation(other.m_transformation)
     {
 		assert(this->id().valid()); assert(this->config.id().valid()); assert(this->id() != this->config.id());
 		assert(this->id() == other.id() && this->config.id() == other.config.id());
@@ -535,7 +535,7 @@ private:
     }
     // Providing a new mesh, therefore this volume will get a new unique ID assigned.
     ModelVolume(ModelObject *object, const ModelVolume &other, const TriangleMesh &&mesh) :
-        name(other.name), m_mesh(new TriangleMesh(std::move(mesh))), config(other.config), m_type(other.m_type), object(object), m_transformation(other.m_transformation)
+        name(other.name), config(other.config), object(object), m_mesh(new TriangleMesh(std::move(mesh))), m_type(other.m_type), m_transformation(other.m_transformation)
     {
 		assert(this->id().valid()); assert(this->config.id().valid()); assert(this->id() != this->config.id());
 		assert(this->id() != other.id() && this->config.id() == other.config.id());

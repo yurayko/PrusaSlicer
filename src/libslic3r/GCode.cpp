@@ -748,7 +748,7 @@ void GCode::_do_export(Print &print, FILE *file)
         mm3_per_mm.erase(std::remove_if(mm3_per_mm.begin(), mm3_per_mm.end(), [](double v) { return v < 0.000001; }), mm3_per_mm.end());
         if (! mm3_per_mm.empty()) {
             // In order to honor max_print_speed we need to find a target volumetric
-            // speed that we can use throughout the print. So we define this target 
+            // speed that we can use throughout the print. So we define this target 
             // volumetric speed as the volumetric speed produced by printing the 
             // smallest cross-section at the maximum speed: any larger cross-section
             // will need slower feedrates.
@@ -815,7 +815,7 @@ void GCode::_do_export(Print &print, FILE *file)
             _writeln(file, GCodeTimeEstimator::Silent_First_M73_Output_Placeholder_Tag);
     }
 
-    // Prepare the helper object for replacing placeholders in custom G-code and output filename.
+    // Prepare the helper object for replacing placeholders in custom G-code and output filename.
     m_placeholder_parser = print.placeholder_parser();
     m_placeholder_parser.update_timestamp();
     print.update_object_placeholders(m_placeholder_parser.config_writable(), ".gcode");
@@ -1153,7 +1153,7 @@ void GCode::_do_export(Print &print, FILE *file)
             double extruded_volume = extruder.extruded_volume() + (has_wipe_tower ? print.wipe_tower_data().used_filament[extruder.id()] * 2.4052f : 0.f); // assumes 1.75mm filament diameter
             double filament_weight = extruded_volume * extruder.filament_density() * 0.001;
             double filament_cost   = filament_weight * extruder.filament_cost()    * 0.001;
-            auto append = [&extruder, &extruders](std::pair<std::string, unsigned int> &dst, const char *tmpl, double value) {
+            auto append = [&extruder](std::pair<std::string, unsigned int> &dst, const char *tmpl, double value) {
                 while (dst.second < extruder.id()) {
                     // Fill in the non-printing extruders with zeros.
                     dst.first += (dst.second > 0) ? ", 0" : "0";
@@ -1818,7 +1818,7 @@ void GCode::process_layer(
     _write(file, gcode);
     BOOST_LOG_TRIVIAL(trace) << "Exported layer " << layer.id() << " print_z " << print_z << 
         ", time estimator memory: " <<
-            format_memsize_MB(m_normal_time_estimator.memory_used() + m_silent_time_estimator_enabled ? m_silent_time_estimator.memory_used() : 0) <<
+        format_memsize_MB(m_normal_time_estimator.memory_used() + (m_silent_time_estimator_enabled ? m_silent_time_estimator.memory_used() : 0)) <<
         ", analyzer memory: " <<
             format_memsize_MB(m_analyzer.memory_used());
 }
@@ -1898,37 +1898,37 @@ std::string GCode::change_layer(coordf_t print_z)
     return gcode;
 }
 
-static inline const char* ExtrusionRole2String(const ExtrusionRole role)
-{
-    switch (role) {
-    case erNone:                        return "erNone";
-    case erPerimeter:                   return "erPerimeter";
-    case erExternalPerimeter:           return "erExternalPerimeter";
-    case erOverhangPerimeter:           return "erOverhangPerimeter";
-    case erInternalInfill:              return "erInternalInfill";
-    case erSolidInfill:                 return "erSolidInfill";
-    case erTopSolidInfill:              return "erTopSolidInfill";
-    case erBridgeInfill:                return "erBridgeInfill";
-    case erGapFill:                     return "erGapFill";
-    case erSkirt:                       return "erSkirt";
-    case erSupportMaterial:             return "erSupportMaterial";
-    case erSupportMaterialInterface:    return "erSupportMaterialInterface";
-    case erWipeTower:                   return "erWipeTower";
-    case erMixed:                       return "erMixed";
+//static inline const char* ExtrusionRole2String(const ExtrusionRole role)
+//{
+//    switch (role) {
+//    case erNone:                        return "erNone";
+//    case erPerimeter:                   return "erPerimeter";
+//    case erExternalPerimeter:           return "erExternalPerimeter";
+//    case erOverhangPerimeter:           return "erOverhangPerimeter";
+//    case erInternalInfill:              return "erInternalInfill";
+//    case erSolidInfill:                 return "erSolidInfill";
+//    case erTopSolidInfill:              return "erTopSolidInfill";
+//    case erBridgeInfill:                return "erBridgeInfill";
+//    case erGapFill:                     return "erGapFill";
+//    case erSkirt:                       return "erSkirt";
+//    case erSupportMaterial:             return "erSupportMaterial";
+//    case erSupportMaterialInterface:    return "erSupportMaterialInterface";
+//    case erWipeTower:                   return "erWipeTower";
+//    case erMixed:                       return "erMixed";
 
-    default:                            return "erInvalid";
-    };
-}
+//    default:                            return "erInvalid";
+//    };
+//}
 
-static inline const char* ExtrusionLoopRole2String(const ExtrusionLoopRole role)
-{
-    switch (role) {
-    case elrDefault:                    return "elrDefault";
-    case elrContourInternalPerimeter:   return "elrContourInternalPerimeter";
-    case elrSkirt:                      return "elrSkirt";
-    default:                            return "elrInvalid";
-    }
-};
+//static inline const char* ExtrusionLoopRole2String(const ExtrusionLoopRole role)
+//{
+//    switch (role) {
+//    case elrDefault:                    return "elrDefault";
+//    case elrContourInternalPerimeter:   return "elrContourInternalPerimeter";
+//    case elrSkirt:                      return "elrSkirt";
+//    default:                            return "elrInvalid";
+//    }
+//};
 
 // Return a value in <0, 1> of a cubic B-spline kernel centered around zero.
 // The B-spline is re-scaled so it has value 1 at zero.
@@ -2598,7 +2598,7 @@ std::string GCode::_extrude(const ExtrusionPath &path, std::string description, 
             EXTRUDER_CONFIG(filament_max_volumetric_speed) / path.mm3_per_mm
         );
     }
-    double F = speed * 60;  // convert mm/sec to mm/min
+    double F = speed * 60;  // convert mm/sec to mm/min
     
     // extrude arc or line
     if (m_enable_extrusion_role_markers)

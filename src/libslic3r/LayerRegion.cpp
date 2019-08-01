@@ -274,7 +274,7 @@ void LayerRegion::process_external_surfaces(const Layer* lower_layer)
                 surfaces_append(bottom, union_ex(grown, true), bridges[idx_last]);
             }
 
-            fill_boundaries = std::move(to_polygons(fill_boundaries_ex));
+            fill_boundaries = to_polygons(fill_boundaries_ex);
 			BOOST_LOG_TRIVIAL(trace) << "Processing external surface, detecting bridges - done";
 		}
 

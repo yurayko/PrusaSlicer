@@ -33,11 +33,11 @@ const float GCodeAnalyzer::Default_Height = 0.0f;
 GCodeAnalyzer::Metadata::Metadata()
     : extrusion_role(erNone)
     , extruder_id(DEFAULT_EXTRUDER_ID)
-    , cp_color_id(DEFAULT_COLOR_PRINT_ID)
     , mm3_per_mm(GCodeAnalyzer::Default_mm3_per_mm)
     , width(GCodeAnalyzer::Default_Width)
     , height(GCodeAnalyzer::Default_Height)
     , feedrate(DEFAULT_FEEDRATE)
+    , cp_color_id(DEFAULT_COLOR_PRINT_ID)
 {
 }
 

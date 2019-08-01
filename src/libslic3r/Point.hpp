@@ -149,8 +149,8 @@ struct PointHash {
 template<typename ValueType, typename PointAccessor> class ClosestPointInRadiusLookup
 {
 public:
-    ClosestPointInRadiusLookup(coord_t search_radius, PointAccessor point_accessor = PointAccessor()) : 
-		m_search_radius(search_radius), m_point_accessor(point_accessor), m_grid_log2(0)
+    ClosestPointInRadiusLookup(coord_t search_radius, PointAccessor point_accessor = PointAccessor()) :
+        m_point_accessor(point_accessor), m_search_radius(search_radius), m_grid_log2(0)
     {
         // Resolution of a grid, twice the search radius + some epsilon.
 		coord_t gridres = 2 * m_search_radius + 4;

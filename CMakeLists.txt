@@ -54,6 +54,12 @@ endif ()
 
 if (MSVC AND CMAKE_CXX_COMPILER_ID STREQUAL Clang)
     set(IS_CLANG_CL TRUE)
+
+    # This should make use of warning handling from external library include paths
+    # see https://gitlab.kitware.com/cmake/cmake/issues/17904
+    # and https://devblogs.microsoft.com/cppblog/broken-warnings-theory/
+    set(CMAKE_INCLUDE_SYSTEM_FLAG_CXX "-imsvc")
+
 else ()
     set(IS_CLANG_CL FALSE)
 endif ()

@@ -25,6 +25,7 @@ public:
     explicit MultiPoint(const Points &_points) : points(_points) {}
     MultiPoint& operator=(const MultiPoint &other) { points = other.points; return *this; }
     MultiPoint& operator=(MultiPoint &&other) { points = std::move(other.points); return *this; }
+    virtual ~MultiPoint() = default;
     void scale(double factor);
     void scale(double factor_x, double factor_y);
     void translate(double x, double y);

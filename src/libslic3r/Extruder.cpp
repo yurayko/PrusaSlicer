@@ -3,8 +3,8 @@
 namespace Slic3r {
 
 Extruder::Extruder(unsigned int id, GCodeConfig *config) :
-    m_id(id),
-    m_config(config)
+    m_config(config),
+    m_id(id)
 {
     reset();
     

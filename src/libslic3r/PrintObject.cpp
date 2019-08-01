@@ -788,7 +788,7 @@ void PrintObject::detect_surfaces_type()
         // Fill in layerm->fill_surfaces by trimming the layerm->slices by the cummulative layerm->fill_surfaces.
         tbb::parallel_for(
             tbb::blocked_range<size_t>(0, m_layers.size()),
-            [this, idx_region, interface_shells, &surfaces_new](const tbb::blocked_range<size_t>& range) {
+            [this, idx_region](const tbb::blocked_range<size_t>& range) {
                 for (size_t idx_layer = range.begin(); idx_layer < range.end(); ++ idx_layer) {
                     m_print->throw_if_canceled();
                     LayerRegion *layerm = m_layers[idx_layer]->get_region(idx_region);
@@ -1873,9 +1873,10 @@ std::vector<ExPolygons> PrintObject::slice_modifiers(size_t region_id, const std
 			                		if (! this_slices[i].empty())
 			                			if (! out[i].empty()) {
 			                				append(out[i], this_slices[i]);
-			                				merge[i] = true;
-			                			} else
-			                				out[i] = std::move(this_slices[i]);
+                                            merge[i] = true;
+                                        } else {
+                                            out[i] = std::move(this_slices[i]);
+                                        }
 			                }
 							i = j;
 						} else
@@ -2379,7 +2380,7 @@ void PrintObject::discover_horizontal_shells()
                     if (new_internal_solid.empty()) {
                         // No internal solid needed on this layer. In order to decide whether to continue
                         // searching on the next neighbor (thus enforcing the configured number of solid
-                        // layers, use different strategies according to configured infill density:
+                        // layers, use different strategies according to configured infill density:
                         if (region_config.fill_density.value == 0) {
                             // If user expects the object to be void (for example a hollow sloping vase),
                             // don't continue the search. In this case, we only generate the external solid
