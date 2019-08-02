@@ -55,11 +55,11 @@ endif ()
 if (MSVC AND CMAKE_CXX_COMPILER_ID STREQUAL Clang)
     set(IS_CLANG_CL TRUE)
 
-    # This should make use of warning handling from external library include paths
-    # see https://gitlab.kitware.com/cmake/cmake/issues/17904
-    # and https://devblogs.microsoft.com/cppblog/broken-warnings-theory/
+    # clang-cl can interpret SYSTEM header paths if -imsvc is used
     set(CMAKE_INCLUDE_SYSTEM_FLAG_CXX "-imsvc")
 
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
+        -Wno-old-style-cast -Wno-reserved-id-macro -Wno-c++98-compat-pedantic")
 else ()
     set(IS_CLANG_CL FALSE)
 endif ()
