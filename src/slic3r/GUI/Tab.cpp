@@ -836,7 +836,7 @@ static wxString support_combo_value_for_config(const DynamicPrintConfig &config,
 
 static wxString pad_combo_value_for_config(const DynamicPrintConfig &config)
 {
-	return config.opt_bool("pad_enable") ? (config.opt_bool("pad_zero_elevation") ? _("Around object") : _("Below object")) : _("None");
+    return config.opt_bool("pad_enable") ? (config.opt_bool("pad_zero_elevation") ? _("Around object") : _("Below object")) : _("None");
 }
 
 void Tab::on_value_change(const std::string& opt_key, const boost::any& value)
@@ -858,8 +858,8 @@ void Tab::on_value_change(const std::string& opt_key, const boost::any& value)
             (opt_key == "supports_enable"  || opt_key == "support_buildplate_only"))
         og_freq_chng_params->set_value("support", support_combo_value_for_config(*m_config, is_fff));
 
-	if (! is_fff && (opt_key == "pad_enable" || opt_key == "pad_zero_elevation"))
-		og_freq_chng_params->set_value("pad", pad_combo_value_for_config(*m_config));
+    if (! is_fff && (opt_key == "pad_enable" || opt_key == "pad_zero_elevation"))
+        og_freq_chng_params->set_value("pad", pad_combo_value_for_config(*m_config));
 
     if (opt_key == "brim_width")
     {
@@ -996,7 +996,7 @@ void Tab::update_frequently_changed_parameters()
 
     og_freq_chng_params->set_value("support", support_combo_value_for_config(*m_config, is_fff));
     if (! is_fff)
-    	og_freq_chng_params->set_value("pad", pad_combo_value_for_config(*m_config));
+        og_freq_chng_params->set_value("pad", pad_combo_value_for_config(*m_config));
 
     const std::string updated_value_key = is_fff ? "fill_density" : "pad_enable";
 
@@ -1770,13 +1770,13 @@ void TabFilament::reload_config()
 
 void TabFilament::update_volumetric_flow_preset_hints()
 {
-	wxString text;
-	try {
-		text = from_u8(PresetHints::maximum_volumetric_flow_description(*m_preset_bundle));
-	} catch (std::exception &ex) {
-		text = _(L("Volumetric flow hints not available\n\n")) + from_u8(ex.what());
-	}
-	m_volumetric_speed_description_line->SetText(text);
+    wxString text;
+    try {
+        text = from_u8(PresetHints::maximum_volumetric_flow_description(*m_preset_bundle));
+    } catch (std::exception &ex) {
+        text = _(L("Volumetric flow hints not available\n\n")) + from_u8(ex.what());
+    }
+    m_volumetric_speed_description_line->SetText(text);
 }
 
 void TabFilament::update()
@@ -1786,9 +1786,9 @@ void TabFilament::update()
 
     m_update_cnt++;
 
-	wxString text = from_u8(PresetHints::cooling_description(m_presets->get_edited_preset()));
-	m_cooling_description_line->SetText(text);
-	this->update_volumetric_flow_preset_hints();
+    wxString text = from_u8(PresetHints::cooling_description(m_presets->get_edited_preset()));
+    m_cooling_description_line->SetText(text);
+    this->update_volumetric_flow_preset_hints();
     Layout();
 
     bool cooling = m_config->opt_bool("cooling", 0);
@@ -1810,8 +1810,8 @@ void TabFilament::update()
 
 void TabFilament::OnActivate()
 {
-	this->update_volumetric_flow_preset_hints();
-	Tab::OnActivate();
+    this->update_volumetric_flow_preset_hints();
+    Tab::OnActivate();
 }
 
 wxSizer* Tab::description_line_widget(wxWindow* parent, ogStaticText* *StaticText)
@@ -3671,6 +3671,8 @@ void TabSLAPrint::build()
     auto optgroup = page->new_optgroup(_(L("Layers")));
     optgroup->append_single_option_line("layer_height");
     optgroup->append_single_option_line("faded_layers");
+
+    optgroup->append_single_option_line("object_absolute_correction");
 
     page = add_options_page(_(L("Supports")), "support"/*"sla_supports"*/);
     optgroup = page->new_optgroup(_(L("Supports")));

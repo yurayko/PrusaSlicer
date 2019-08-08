@@ -786,7 +786,8 @@ void SLAPrint::process()
 
         auto mit = slindex_it;
         double doffs = m_printer_config.absolute_correction.getFloat();
-        coord_t clpr_offs = scaled(doffs);
+        double dobjoffs = po.m_config.object_absolute_correction.getFloat();
+        coord_t clpr_offs = scaled(doffs + dobjoffs);
         for(size_t id = 0;
             id < po.m_model_slices.size() && mit != po.m_slice_index.end();
             id++)
@@ -1043,7 +1044,8 @@ void SLAPrint::process()
         }
 
         double doffs = m_printer_config.absolute_correction.getFloat();
-        coord_t clpr_offs = scaled(doffs);
+        double dobjoffs = po.m_config.object_absolute_correction.getFloat();
+        coord_t clpr_offs = scaled(doffs + dobjoffs);
         for(size_t i = 0;
             i < sd->support_slices.size() && i < po.m_slice_index.size();
             ++i)
@@ -1660,7 +1662,8 @@ bool SLAPrintObject::invalidate_state_by_config_options(const std::vector<t_conf
             || opt_key == "supports_enable"
             || opt_key == "support_object_elevation"
             || opt_key == "pad_zero_elevation"
-            || opt_key == "slice_closing_radius") {
+            || opt_key == "slice_closing_radius"
+            || opt_key == "object_absolute_correction") {
             steps.emplace_back(slaposObjectSlice);
         } else if (
 

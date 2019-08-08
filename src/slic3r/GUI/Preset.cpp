@@ -455,6 +455,7 @@ const std::vector<std::string>& Preset::sla_print_options()
         s_opts = {
             "layer_height",
             "faded_layers",
+            "object_absolute_correction",
             "supports_enable",
             "support_head_front_diameter",
             "support_head_penetration",

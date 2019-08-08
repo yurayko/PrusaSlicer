@@ -957,6 +957,9 @@ public:
     //Number of the layers needed for the exposure time fade [3;20]
     ConfigOptionInt  faded_layers /*= 10*/;
 
+    // An offset to apply on the sliced polygons
+    ConfigOptionFloat object_absolute_correction;
+
     ConfigOptionFloat slice_closing_radius;
 
     // Enabling or disabling support creation
@@ -1061,6 +1064,7 @@ protected:
     {
         OPT_PTR(layer_height);
         OPT_PTR(faded_layers);
+        OPT_PTR(object_absolute_correction);
         OPT_PTR(slice_closing_radius);
         OPT_PTR(supports_enable);
         OPT_PTR(support_head_front_diameter);
