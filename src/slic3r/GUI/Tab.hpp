@@ -107,7 +107,6 @@ wxDECLARE_EVENT(EVT_TAB_VALUE_CHANGED, wxCommandEvent);
 wxDECLARE_EVENT(EVT_TAB_PRESETS_CHANGED, SimpleEvent);
 
 
-using PageShp = std::shared_ptr<Page>;
 class Tab: public wxPanel
 {
 	wxNotebook*			m_parent;
@@ -196,7 +195,7 @@ protected:
 
 	int					m_icon_count;
 	std::map<std::string, size_t>	m_icon_index;		// Map from an icon file name to its index
-	std::vector<PageShp>			m_pages;
+	std::vector<Page*>				m_pages;
 	bool				m_disable_tree_sel_changed_event;
 	bool				m_show_incompatible_presets;
 
@@ -275,7 +274,7 @@ public:
 
 	void		on_roll_back_value(const bool to_sys = false);
 
-	PageShp		add_options_page(const wxString& title, const std::string& icon, bool is_extruder_pages = false);
+	Page*		add_options_page(const wxString& title, const std::string& icon, bool is_extruder_pages = false);
 
 	virtual void	OnActivate();
 	virtual void	on_preset_loaded() {}
@@ -363,8 +362,8 @@ class TabPrinter : public Tab
 	void		append_option_line(ConfigOptionsGroupShp optgroup, const std::string opt_key);
 	bool		m_rebuild_kinematics_page = false;
 
-    std::vector<PageShp>			m_pages_fff;
-    std::vector<PageShp>			m_pages_sla;
+    std::vector<Page*>			m_pages_fff;
+    std::vector<Page*>			m_pages_sla;
 
     void build_printhost(ConfigOptionsGroup *optgroup);
 public:
@@ -393,7 +392,7 @@ public:
     void        update_pages(); // update m_pages according to printer technology
 	void		update_serial_ports();
 	void		extruders_count_changed(size_t extruders_count);
-	PageShp		build_kinematics_page();
+	Page*		build_kinematics_page();
 	void		build_unregular_pages();
 	void		on_preset_loaded() override;
 	void		init_options_list() override;

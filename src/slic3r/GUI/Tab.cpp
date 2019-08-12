@@ -64,7 +64,7 @@ Tab::Tab(wxNotebook* parent, const wxString& title, Preset::Type type) :
 
     Bind(wxEVT_SIZE, ([this](wxSizeEvent &evt) {
         for (auto page : m_pages)
-            if (! page.get()->IsShown())
+            if (! page->IsShown())
                 page->layout_valid = false;
         evt.Skip();
     }));
@@ -292,7 +292,7 @@ void Tab::load_initial_data()
     m_tt_non_system  = has_parent ? &m_tt_value_unlock  : &m_ttg_white_bullet_ns;
 }
 
-Slic3r::GUI::PageShp Tab::add_options_page(const wxString& title, const std::string& icon, bool is_extruder_pages /*= false*/)
+Slic3r::GUI::Page* Tab::add_options_page(const wxString& title, const std::string& icon, bool is_extruder_pages /*= false*/)
 {
     // Index of icon in an icon list $self->{icons}.
     auto icon_idx = 0;
@@ -312,15 +312,11 @@ Slic3r::GUI::PageShp Tab::add_options_page(const wxString& title, const std::str
 #else
     auto panel = this;
 #endif
-    PageShp page(new Page(panel, title, icon_idx, m_mode_bitmap_cache));
-//	page->SetBackgroundStyle(wxBG_STYLE_SYSTEM);
-#ifdef __WINDOWS__
-//	page->SetDoubleBuffered(true);
-#endif //__WINDOWS__
+    Page* page = new Page(panel, title, icon_idx, m_mode_bitmap_cache);
 
     page->SetScrollbars(1, 20, 1, 2);
     page->Hide();
-    m_hsizer->Add(page.get(), 1, wxEXPAND | wxLEFT, 5);
+    m_hsizer->Add(page, 1, wxEXPAND | wxLEFT, 5);
 
     if (!is_extruder_pages)
         m_pages.push_back(page);
@@ -1509,7 +1505,7 @@ void TabPrint::OnActivate()
 
 void TabFilament::add_filament_overrides_page()
 {
-    PageShp page = add_options_page(_(L("Filament Overrides")), "wrench");
+    Page* page = add_options_page(_(L("Filament Overrides")), "wrench");
     ConfigOptionsGroupShp optgroup = page->new_optgroup(_(L("Retraction")));
 
     auto append_single_option_line = [optgroup, this](const std::string& opt_key, int opt_index)
@@ -1564,10 +1560,10 @@ void TabFilament::add_filament_overrides_page()
 
 void TabFilament::update_filament_overrides_page()
 {
-    const auto page_it = std::find_if(m_pages.begin(), m_pages.end(), [](const PageShp page) {return page->title() == _(L("Filament Overrides")); });
+    const auto page_it = std::find_if(m_pages.begin(), m_pages.end(), [](const Page* page) {return page->title() == _(L("Filament Overrides")); });
     if (page_it == m_pages.end())
         return;
-    PageShp page = *page_it;
+    Page* page = *page_it;
 
     const auto og_it = std::find_if(page->m_optgroups.begin(), page->m_optgroups.end(), [](const ConfigOptionsGroupShp og) {return og->title == _(L("Retraction")); });
     if (og_it == page->m_optgroups.end())
@@ -2348,7 +2344,7 @@ void TabPrinter::append_option_line(ConfigOptionsGroupShp optgroup, const std::s
     optgroup->append_line(line);
 }
 
-PageShp TabPrinter::build_kinematics_page()
+Page* TabPrinter::build_kinematics_page()
 {
     auto page = add_options_page(_(L("Machine limits")), "cog", true);
 
@@ -2424,7 +2420,7 @@ void TabPrinter::build_unregular_pages()
     /* Workaround for correct layout of controls inside the created page:
      * In some _strange_ way we should we should imitate page resizing.
      */
-    auto layout_page = [this](PageShp page)
+    auto layout_page = [this](Page* page)
     {
         const wxSize& sz = page->GetSize();
         page->SetSize(sz.x + 1, sz.y + 1);
@@ -2593,7 +2589,7 @@ void TabPrinter::update_pages()
 
     // hide all old pages
     for (auto& el : m_pages)
-        el.get()->Hide();
+        el->Hide();
 
     // set m_pages to m_pages_(technology before changing)
     m_printer_technology == ptFFF ? m_pages.swap(m_pages_fff) : m_pages.swap(m_pages_sla);
@@ -3111,7 +3107,7 @@ void Tab::OnTreeSelChange(wxTreeEvent& event)
     for (auto p : m_pages)
         if (p->title() == selection)
         {
-            page = p.get();
+            page = p;
             m_is_nonsys_values = page->m_is_nonsys_values;
             m_is_modified_values = page->m_is_modified_values;
             break;
@@ -3119,10 +3115,7 @@ void Tab::OnTreeSelChange(wxTreeEvent& event)
     if (page == nullptr) return;
 
     for (auto& el : m_pages)
-//		if (el.get()->IsShown()) {
-            el.get()->Hide();
-//			break;
-//		}
+        el->Hide();
 
     #ifdef __linux__
         no_updates.reset(nullptr);
