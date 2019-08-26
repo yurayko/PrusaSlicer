@@ -567,10 +567,34 @@ public:
     static inline double overfit(const RawShape& chull, const RawShape& bin) {
         auto bbch = sl::boundingBox(chull);
         auto bbin = sl::boundingBox(bin);
-        auto d =  bbch.center() - bbin.center();
+        auto d = bbin.center() - bbch.center();
         auto chullcpy = chull;
         sl::translate(chullcpy, d);
         return sl::isInside(chullcpy, bin) ? -1.0 : 1.0;
+    }
+    
+    template<class B>
+    static inline double overfit(const TMultiShape<RawShape> &shapes,
+                                 const B &             bin)
+    {
+        auto bbch = sl::boundingBox(shapes);
+        auto bbin = sl::boundingBox(bin);
+        auto d = bbin.center() - bbch.center();
+        bool ins = true;
+        auto it = shapes.begin();
+        while (ins && it != shapes.end()) {
+            auto sh = *it++;
+            sl::translate(sh, d);
+            ins = ins && sl::isInside(sh, bin);
+        }
+        return ins ? -1.0 : 1.0;
+    }
+    
+    static inline double overfit(const TMultiShape<RawShape> &shapes,
+                                 const Box &                    bin)
+    {
+        auto bbch = sl::boundingBox(shapes);
+        return overfit(bbch, bin);
     }
 
     static inline double overfit(const RawShape& chull, const Box& bin)
@@ -917,7 +941,7 @@ private:
                         ins_check = [&bin](const Box& fullbb) {
                             double miss = overfit(fullbb, bin);
                             miss = miss > 0? miss : 0;
-                            return std::pow(miss, 2);
+                            return miss * miss;
                         };
 
                     _objfunc = [norm, binbb, pbb, ins_check](const Item& item)
@@ -961,14 +985,24 @@ private:
                     d += startpos;
                     item.translation(d);
 
-                    merged_pile.emplace_back(item.transformedShape());
-                    auto chull = sl::convexHull(merged_pile);
-                    merged_pile.pop_back();
-
                     double miss = 0;
-                    if(alignment == Config::Alignment::DONT_ALIGN)
-                       miss = sl::isInside(chull, bin) ? -1.0 : 1.0;
-                    else miss = overfit(chull, bin);
+                    
+                    if(alignment == Config::Alignment::DONT_ALIGN) {
+                        bool ins = true;
+                        
+                        auto it = merged_pile.begin();
+                        while(ins && it != merged_pile.end())
+                            ins = ins && sl::isInside(*it++, bin);
+                      
+                        ins = ins && sl::isInside(item.transformedShape(), bin);
+                        
+                        miss = ins ? -1.0 : 1.0;
+                    }
+                    else {
+                        merged_pile.emplace_back(item.transformedShape());
+                        miss = overfit(merged_pile, bin);
+                        merged_pile.pop_back();
+                    }
 
                     return miss;
                 };

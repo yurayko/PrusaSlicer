@@ -427,8 +427,31 @@ template<>
 std::function<double(const Item &)> AutoArranger<clppr::Polygon>::get_objfn()
 {
     auto bincenter = sl::boundingBox(m_bin).center();
-    return [this, bincenter](const Item &item) {
-        return std::get<0>(objfunc(item, bincenter));
+    
+    return [this, bincenter](const Item &itm) {
+        auto result = objfunc(itm, bincenter);
+        
+        double score = std::get<0>(result);
+        auto& fullbb = std::get<1>(result);
+        
+        Polygons mp = reserve_vector<Polygon>(m_merged_pile.size() + 1);
+        for (auto &p : m_merged_pile)
+            mp.emplace_back(ClipperPath_to_Slic3rPolygon(p.Contour));
+
+        mp.emplace_back(
+            ClipperPath_to_Slic3rPolygon(itm.transformedShape().Contour));
+        
+        auto d = bincenter - fullbb.center();
+        for (auto &p : mp) p.translate(d.X, d.Y);
+        
+        auto diffpoly = diff(mp, {ClipperPath_to_Slic3rPolygon(m_bin.Contour)});
+        
+        double miss = 0;
+        for (auto &p : diffpoly) miss += p.area();
+        
+        if (miss > 0) score += miss;
+        
+        return score;    
     };
 }
 
@@ -657,7 +680,6 @@ void arrange(ArrangePolygons &             arrangables,
     case bsIrregular: {
         auto ctour = Slic3rMultiPoint_to_ClipperPath(bedhint.get_irregular());
         auto irrbed = sl::create<clppr::Polygon>(std::move(ctour));
-        BoundingBox polybb(bedhint.get_irregular());
         
         _arrange(items, fixeditems, irrbed, min_obj_dist, pri, cfn);
         break;
