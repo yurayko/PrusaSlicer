@@ -57,7 +57,7 @@ include(CMakeParseArguments)
 macro(combine_arguments _variable)
   set(_result "")
   foreach(_element ${${_variable}})
-    set(_result "${_result} \"${_element}\"")
+    set(_result "${_result} ${_element}")
   endforeach()
   string(STRIP "${_result}" _result)
   set(${_variable} "${_result}")
@@ -65,6 +65,7 @@ endmacro()
 
 function(export_all_flags _filename)
   set(_include_directories "$<TARGET_PROPERTY:${_target},INCLUDE_DIRECTORIES>")
+  set(_system_include_directories "$<TARGET_PROPERTY:${_target},SYSTEM_INCLUDE_DIRECTORIES>")
   set(_compile_definitions "$<TARGET_PROPERTY:${_target},COMPILE_DEFINITIONS>")
   set(_compile_flags "$<TARGET_PROPERTY:${_target},COMPILE_FLAGS>")
   set(_compile_options "$<TARGET_PROPERTY:${_target},COMPILE_OPTIONS>")
@@ -80,7 +81,7 @@ function(export_all_flags _filename)
   endif()
 
   #handle compiler standard (GCC only)
-  if(CMAKE_COMPILER_IS_GNUCXX)
+  if(NOT MSVC AND (CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID STREQUAL Clang))
     get_target_property(_cxx_standard ${_target} CXX_STANDARD)
     if ((NOT "${_cxx_standard}" STREQUAL NOTFOUND) AND (NOT "${_cxx_standard}" STREQUAL ""))
       get_target_property(_cxx_extensions ${_target} CXX_EXTENSIONS)
@@ -94,11 +95,12 @@ function(export_all_flags _filename)
   endif()
 
   set(_include_directories "$<$<BOOL:${_include_directories}>:-I$<JOIN:${_include_directories},\n-I>\n>")
+  set(_system_include_directories "$<$<BOOL:${_system_include_directories}>:${CMAKE_INCLUDE_SYSTEM_FLAG_CXX}$<JOIN:${_system_include_directories},\n${CMAKE_INCLUDE_SYSTEM_FLAG_CXX}>\n>")
   set(_compile_definitions "$<$<BOOL:${_compile_definitions}>:-D$<JOIN:${_compile_definitions},\n-D>\n>")
   set(_compile_flags "$<$<BOOL:${_compile_flags}>:$<JOIN:${_compile_flags},\n>\n>")
   set(_compile_options "$<$<BOOL:${_compile_options}>:$<JOIN:${_compile_options},\n>\n>")
   set(_cxx_flags "$<$<BOOL:${CMAKE_CXX_FLAGS}>:${CMAKE_CXX_FLAGS}\n>$<$<BOOL:${_build_cxx_flags}>:${_build_cxx_flags}\n>")
-  file(GENERATE OUTPUT "${_filename}" CONTENT "${_compile_definitions}${_include_directories}${_compile_flags}${_compile_options}${_cxx_flags}\n")
+  file(GENERATE OUTPUT "${_filename}" CONTENT "${_compile_definitions}${_include_directories}${_system_include_directories}${_compile_flags}${_compile_options}${_cxx_flags}\n")
 endfunction()
 
 function(add_precompiled_header _target _input)
@@ -176,12 +178,16 @@ function(add_precompiled_header _target _input)
     endif()
   endif(MSVC)
 
-  if(CMAKE_COMPILER_IS_GNUCXX)
+  if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID STREQUAL Clang)
     get_filename_component(_name ${_input} NAME)
     set(_pch_header "${CMAKE_CURRENT_SOURCE_DIR}/${_input}")
     set(_pch_binary_dir "${CMAKE_CURRENT_BINARY_DIR}/${_target}_pch")
     set(_pchfile "${_pch_binary_dir}/${_input}")
-    set(_outdir "${CMAKE_CURRENT_BINARY_DIR}/${_target}_pch/${_name}.gch")
+    if (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
+        set(_outdir "${CMAKE_CURRENT_BINARY_DIR}/${_target}_pch/${_name}.pch")
+    else ()
+        set(_outdir "${CMAKE_CURRENT_BINARY_DIR}/${_target}_pch/${_name}.gch")
+    endif ()
     file(MAKE_DIRECTORY "${_outdir}")
     set(_output_cxx "${_outdir}/.c++")
     set(_output_c "${_outdir}/.c")
@@ -189,22 +195,30 @@ function(add_precompiled_header _target _input)
     set(_pch_flags_file "${_pch_binary_dir}/compile_flags.rsp")
     export_all_flags("${_pch_flags_file}")
     set(_compiler_FLAGS "@${_pch_flags_file}")
+    
     add_custom_command(
       OUTPUT "${_pchfile}"
       COMMAND "${CMAKE_COMMAND}" -E copy "${_pch_header}" "${_pchfile}"
       DEPENDS "${_pch_header}"
       COMMENT "Updating ${_name}")
+  
+    add_custom_target(${_target}_pch_update DEPENDS "${_pch_header}")
+  
     add_custom_command(
       OUTPUT "${_output_cxx}"
       COMMAND "${CMAKE_CXX_COMPILER}" ${_compiler_FLAGS} -x c++-header -o "${_output_cxx}" "${_pchfile}"
-      DEPENDS "${_pchfile}" "${_pch_flags_file}"
+      DEPENDS "${_pchfile}"
       COMMENT "Precompiling ${_name} for ${_target} (C++)")
-    add_custom_command(
-      OUTPUT "${_output_c}"
-      COMMAND "${CMAKE_C_COMPILER}" ${_compiler_FLAGS} -x c-header -o "${_output_c}" "${_pchfile}"
-      DEPENDS "${_pchfile}" "${_pch_flags_file}"
-      COMMENT "Precompiling ${_name} for ${_target} (C)")
-
+  
+    add_custom_target(${_target}_pch_cxx_precompile DEPENDS "${_pchfile}")
+  
+#    add_custom_target(${_target}_pch_c_precompile
+#      BYPRODUCTS "${_output_c}"
+#      COMMAND "${CMAKE_C_COMPILER}" ${_compiler_FLAGS} -x c-header -o "${_output_c}" "${_pchfile}"
+#      DEPENDS "${_pchfile}" "${_pch_flags_file}"
+#      COMMENT "Precompiling ${_name} for ${_target} (C)")
+  
+    add_dependencies(${_target} ${_target}_pch_cxx_precompile)
     get_property(_sources TARGET ${_target} PROPERTY SOURCES)
     foreach(_source ${_sources})
       set(_pch_compile_flags "")
@@ -214,6 +228,7 @@ function(add_precompiled_header _target _input)
         if(NOT _pch_compile_flags)
           set(_pch_compile_flags)
         endif()
+        
         separate_arguments(_pch_compile_flags)
         list(APPEND _pch_compile_flags -Winvalid-pch)
         if(_PCH_FORCEINCLUDE)
@@ -239,5 +254,5 @@ function(add_precompiled_header _target _input)
           OBJECT_DEPENDS "${_object_depends}")
       endif()
     endforeach()
-  endif(CMAKE_COMPILER_IS_GNUCXX)
+  endif(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID STREQUAL Clang)
 endfunction()
