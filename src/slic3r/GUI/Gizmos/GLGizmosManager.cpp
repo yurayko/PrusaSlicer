@@ -94,6 +94,7 @@ bool GLGizmosManager::init()
     m_gizmos.emplace_back(new GLGizmoFlatten(m_parent, "place.svg", 3));
     m_gizmos.emplace_back(new GLGizmoCut(m_parent, "cut.svg", 4));
     m_gizmos.emplace_back(new GLGizmoSlaSupports(m_parent, "sla_supports.svg", 5));
+    m_gizmos.emplace_back(new GLGizmoFdmSupports(m_parent, "sla_supports.svg", 6));
 
     for (auto& gizmo : m_gizmos) {
         if (! gizmo->init()) {
@@ -200,6 +201,7 @@ void GLGizmosManager::update_data()
         ModelObject* model_object = selection.get_model()->objects[selection.get_object_idx()];
         set_flattening_data(model_object);
         set_sla_support_data(model_object);
+        set_fdm_support_data(model_object);
     }
     else if (selection.is_single_volume() || selection.is_single_modifier())
     {
@@ -208,6 +210,7 @@ void GLGizmosManager::update_data()
         set_rotation(Vec3d::Zero());
         set_flattening_data(nullptr);
         set_sla_support_data(nullptr);
+        set_fdm_support_data(nullptr);
     }
     else if (is_wipe_tower)
     {
@@ -216,6 +219,7 @@ void GLGizmosManager::update_data()
         set_rotation(Vec3d(0., 0., (M_PI/180.) * dynamic_cast<const ConfigOptionFloat*>(config.option("wipe_tower_rotation_angle"))->value));
         set_flattening_data(nullptr);
         set_sla_support_data(nullptr);
+        set_fdm_support_data(nullptr);
     }
     else
     {
@@ -223,6 +227,7 @@ void GLGizmosManager::update_data()
         set_rotation(Vec3d::Zero());
         set_flattening_data(selection.is_from_single_object() ? selection.get_model()->objects[selection.get_object_idx()] : nullptr);
         set_sla_support_data(nullptr);
+        set_fdm_support_data(nullptr);
     }
 }
 
@@ -352,6 +357,14 @@ void GLGizmosManager::set_sla_support_data(ModelObject* model_object)
     dynamic_cast<GLGizmoSlaSupports*>(m_gizmos[SlaSupports].get())->set_sla_support_data(model_object, m_parent.get_selection());
 }
 
+void GLGizmosManager::set_fdm_support_data(ModelObject* model_object)
+{
+    if (!m_enabled || m_gizmos.empty())
+        return;
+
+    dynamic_cast<GLGizmoFdmSupports*>(m_gizmos[FdmSupports].get())->set_fdm_support_data(model_object, m_parent.get_selection());
+}
+
 // Returns true if the gizmo used the event to do something, false otherwise.
 bool GLGizmosManager::gizmo_event(SLAGizmoEventType action, const Vec2d& mouse_position, bool shift_down, bool alt_down, bool control_down)
 {
@@ -361,12 +374,15 @@ bool GLGizmosManager::gizmo_event(SLAGizmoEventType action, const Vec2d& mouse_p
     return dynamic_cast<GLGizmoSlaSupports*>(m_gizmos[SlaSupports].get())->gizmo_event(action, mouse_position, shift_down, alt_down, control_down);
 }
 
-ClippingPlane GLGizmosManager::get_sla_clipping_plane() const
+ClippingPlane GLGizmosManager::get_clipping_plane() const
 {
-    if (!m_enabled || m_current != SlaSupports || m_gizmos.empty())
+    if (!m_enabled || (m_current != SlaSupports && m_current != FdmSupports) || m_gizmos.empty())
         return ClippingPlane::ClipsNothing();
 
-    return dynamic_cast<GLGizmoSlaSupports*>(m_gizmos[SlaSupports].get())->get_sla_clipping_plane();
+    if (m_current == SlaSupports)
+        return dynamic_cast<GLGizmoSlaSupports*>(m_gizmos[SlaSupports].get())->get_sla_clipping_plane();
+    else
+        return dynamic_cast<GLGizmoFdmSupports*>(m_gizmos[FdmSupports].get())->get_fdm_clipping_plane();
 }
 
 bool GLGizmosManager::wants_reslice_supports_on_undo() const
@@ -386,6 +402,7 @@ void GLGizmosManager::render_current_gizmo() const
 void GLGizmosManager::render_current_gizmo_for_picking_pass() const
 {
     if (! m_enabled || m_current == Undefined)
+
         return;
 
     m_gizmos[m_current]->render_for_picking();
