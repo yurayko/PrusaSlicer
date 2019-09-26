@@ -3,6 +3,7 @@
 
 #include "libslic3r/Point.hpp"
 #include "libslic3r/Geometry.hpp"
+#include "admesh/stl.h"
 
 
 #include <cfloat>
@@ -99,12 +100,15 @@ public:
     void set_camera(const Camera& camera);
 
     bool unproject_on_mesh(const Vec2d& mouse_pos, const Transform3d& trafo, const Camera& camera,
-                           Vec3f& position, Vec3f& normal, const ClippingPlane* clipping_plane = nullptr) const;
+                           Vec3f& position, Vec3f& normal, const ClippingPlane* clipping_plane = nullptr,
+                            size_t* facet_idx = nullptr) const;
 
     std::vector<unsigned> get_unobscured_idxs(const Geometry::Transformation& trafo, const Camera& camera,
                                               const std::vector<Vec3f>& points, const ClippingPlane* clipping_plane = nullptr) const;
 
     Vec3f get_closest_point(const Vec3f& point, Vec3f* normal = nullptr) const;
+
+    static Vec3f get_triangle_normal(const indexed_triangle_set& its, size_t facet_idx);
 
 private:
     // PIMPL wrapper around igl::AABB so I don't have to include the header-only IGL here

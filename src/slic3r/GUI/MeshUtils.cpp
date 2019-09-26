@@ -110,6 +110,7 @@ public:
 
     Vec3f get_hit_pos(const igl::Hit& hit) const;
     Vec3f get_hit_normal(const igl::Hit& hit) const;
+    stl_triangle_vertex_indices get_hit_triangle_indices(const igl::Hit& hit) const;
 
 private:
     const TriangleMesh* m_mesh;
@@ -142,18 +143,26 @@ Vec3f MeshRaycaster::AABBWrapper::get_hit_pos(const igl::Hit& hit) const
                + hit.v           * m_mesh->its.vertices[indices(2)]);
 }
 
-
 Vec3f MeshRaycaster::AABBWrapper::get_hit_normal(const igl::Hit& hit) const
 {
-    const stl_triangle_vertex_indices& indices = m_mesh->its.indices[hit.id];
-    Vec3f a(m_mesh->its.vertices[indices(1)] - m_mesh->its.vertices[indices(0)]);
-    Vec3f b(m_mesh->its.vertices[indices(2)] - m_mesh->its.vertices[indices(0)]);
-    return Vec3f(a.cross(b));
+    return get_triangle_normal(m_mesh->its, hit.id);
 }
 
+stl_triangle_vertex_indices MeshRaycaster::AABBWrapper::get_hit_triangle_indices(const igl::Hit& hit) const
+{
+    return m_mesh->its.indices[hit.id];
+}
+
+Vec3f MeshRaycaster::get_triangle_normal(const indexed_triangle_set& its, size_t facet_idx)
+{
+    Vec3f a(its.vertices[its.indices[facet_idx](1)] - its.vertices[its.indices[facet_idx](0)]);
+    Vec3f b(its.vertices[its.indices[facet_idx](2)] - its.vertices[its.indices[facet_idx](0)]);
+    return Vec3f(a.cross(b)).normalized();
+}
 
 bool MeshRaycaster::unproject_on_mesh(const Vec2d& mouse_pos, const Transform3d& trafo, const Camera& camera,
-                                      Vec3f& position, Vec3f& normal, const ClippingPlane* clipping_plane) const
+                                      Vec3f& position, Vec3f& normal, const ClippingPlane* clipping_plane,
+                                      size_t* facet_idx) const
 {
     const std::array<int, 4>& viewport = camera.get_viewport();
     const Transform3d& model_mat = camera.get_view_matrix();
@@ -197,6 +206,8 @@ bool MeshRaycaster::unproject_on_mesh(const Vec2d& mouse_pos, const Transform3d&
     // Now stuff the points in the provided vector and calculate normals if asked about them:
     position = m_AABB_wrapper->get_hit_pos(hits[i]);
     normal = m_AABB_wrapper->get_hit_normal(hits[i]);
+    if (facet_idx)
+        *facet_idx = hits[i].id;
     return true;
 }
 
