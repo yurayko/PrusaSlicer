@@ -83,7 +83,6 @@ private:
     Geometry::Transformation m_trafo;
     const TriangleMesh* m_mesh = nullptr;
     ClippingPlane m_plane;
-    std::vector<Vec2f> m_triangles2d;
     std::vector<Vec3f> m_triangles3d;
     bool m_triangles_valid = false;
     std::unique_ptr<TriangleMeshSlicer> m_tms;
@@ -96,8 +95,9 @@ class MeshRaycaster {
 public:
     MeshRaycaster(const TriangleMesh& mesh);
     ~MeshRaycaster();
-    void set_transformation(const Geometry::Transformation& trafo);
-    void set_camera(const Camera& camera);
+
+    void line_from_mouse_pos(const Vec2d& mouse_pos, const Transform3d& trafo, const Camera& camera,
+                             Vec3d& point, Vec3d& direction) const;
 
     bool unproject_on_mesh(const Vec2d& mouse_pos, const Transform3d& trafo, const Camera& camera,
                            Vec3f& position, Vec3f& normal, const ClippingPlane* clipping_plane = nullptr,

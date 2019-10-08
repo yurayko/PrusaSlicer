@@ -30,7 +30,6 @@ void MeshClipper::set_mesh(const TriangleMesh& mesh)
     if (m_mesh != &mesh) {
         m_mesh = &mesh;
         m_triangles_valid = false;
-        m_triangles2d.resize(0);
         m_triangles3d.resize(0);
         m_tms.reset(nullptr);
     }
@@ -43,7 +42,6 @@ void MeshClipper::set_transformation(const Geometry::Transformation& trafo)
     if (! m_trafo.get_matrix().isApprox(trafo.get_matrix())) {
         m_trafo = trafo;
         m_triangles_valid = false;
-        m_triangles2d.resize(0);
         m_triangles3d.resize(0);
     }
 }
@@ -79,7 +77,7 @@ void MeshClipper::recalculate_triangles()
     std::vector<ExPolygons> list_of_expolys;
     m_tms->set_up_direction(up);
     m_tms->slice(std::vector<float>{height_mesh}, 0.f, &list_of_expolys, [](){});
-    m_triangles2d = triangulate_expolygons_2f(list_of_expolys[0], m_trafo.get_matrix().matrix().determinant() < 0.);
+    std::vector<Vec2f> triangles2d = triangulate_expolygons_2f(list_of_expolys[0], m_trafo.get_matrix().matrix().determinant() < 0.);
 
     // Rotate the cut into world coords:
     Eigen::Quaternionf q;
@@ -89,8 +87,8 @@ void MeshClipper::recalculate_triangles()
     tr = m_trafo.get_matrix().cast<float>() * tr;
 
     m_triangles3d.clear();
-    m_triangles3d.reserve(m_triangles2d.size());
-    for (const Vec2f& pt : m_triangles2d) {
+    m_triangles3d.reserve(triangles2d.size());
+    for (const Vec2f& pt : triangles2d) {
         m_triangles3d.push_back(Vec3f(pt(0), pt(1), height_mesh+0.001f));
         m_triangles3d.back() = tr * m_triangles3d.back();
     }
@@ -160,9 +158,8 @@ Vec3f MeshRaycaster::get_triangle_normal(const indexed_triangle_set& its, size_t
     return Vec3f(a.cross(b)).normalized();
 }
 
-bool MeshRaycaster::unproject_on_mesh(const Vec2d& mouse_pos, const Transform3d& trafo, const Camera& camera,
-                                      Vec3f& position, Vec3f& normal, const ClippingPlane* clipping_plane,
-                                      size_t* facet_idx) const
+void MeshRaycaster::line_from_mouse_pos(const Vec2d& mouse_pos, const Transform3d& trafo, const Camera& camera,
+                                        Vec3d& point, Vec3d& direction) const
 {
     const std::array<int, 4>& viewport = camera.get_viewport();
     const Transform3d& model_mat = camera.get_view_matrix();
@@ -173,17 +170,28 @@ bool MeshRaycaster::unproject_on_mesh(const Vec2d& mouse_pos, const Transform3d&
     ::gluUnProject(mouse_pos(0), viewport[3] - mouse_pos(1), 0., model_mat.data(), proj_mat.data(), viewport.data(), &pt1(0), &pt1(1), &pt1(2));
     ::gluUnProject(mouse_pos(0), viewport[3] - mouse_pos(1), 1., model_mat.data(), proj_mat.data(), viewport.data(), &pt2(0), &pt2(1), &pt2(2));
 
-    std::vector<igl::Hit> hits;
-
     Transform3d inv = trafo.inverse();
-
     pt1 = inv * pt1;
     pt2 = inv * pt2;
+
+    point = pt1;
+    direction = pt2-pt1;
+}
+
+bool MeshRaycaster::unproject_on_mesh(const Vec2d& mouse_pos, const Transform3d& trafo, const Camera& camera,
+                                      Vec3f& position, Vec3f& normal, const ClippingPlane* clipping_plane,
+                                      size_t* facet_idx) const
+{
+    Vec3d point;
+    Vec3d direction;
+    line_from_mouse_pos(mouse_pos, trafo, camera, point, direction);
+
+    std::vector<igl::Hit> hits;
 
     if (! m_AABB_wrapper->m_AABB.intersect_ray(
         AABBWrapper::MapMatrixXfUnaligned(m_mesh->its.vertices.front().data(), m_mesh->its.vertices.size(), 3),
         AABBWrapper::MapMatrixXiUnaligned(m_mesh->its.indices.front().data(), m_mesh->its.indices.size(), 3),
-        pt1.cast<float>(), (pt2-pt1).cast<float>(), hits))
+        point.cast<float>(), direction.cast<float>(), hits))
         return false; // no intersection found
 
     std::sort(hits.begin(), hits.end(), [](const igl::Hit& a, const igl::Hit& b) { return a.t < b.t; });
