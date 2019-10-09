@@ -2024,7 +2024,7 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
     // Events:
 
     // Preset change event
-    sidebar->Bind(wxEVT_COMBOBOX, &priv::on_select_preset, this);
+//    sidebar->Bind(wxEVT_COMBOBOX, &priv::on_select_preset, this);
 
     sidebar->Bind(EVT_OBJ_LIST_OBJECT_SELECT, [this](wxEvent&) { priv::selection_changed(); });
     sidebar->Bind(EVT_SCHEDULE_BACKGROUND_PROCESS, [this](SimpleEvent&) { this->schedule_background_process(); });
