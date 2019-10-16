@@ -20,6 +20,7 @@ namespace Slic3r {
 
     public:
         GCodeLine() { reset(); }
+        explicit GCodeLine(const std::string& raw) { reset(); m_raw = raw; }
 
         void reset();
 
@@ -31,6 +32,7 @@ namespace Slic3r {
 
         std::string cmd() const;
         std::string comment() const;
+
         const std::string& raw() const { return m_raw; }
 
     private:
@@ -145,6 +147,15 @@ namespace Slic3r {
                 : type(type), data(data), start_position(start_position), end_position(end_position) {}
         };
 
+        struct RepetierStore
+        {
+            Position position;
+            float feedrate;
+
+            RepetierStore() { reset(); }
+            void reset() { position = { FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX }; feedrate = FLT_MAX; }
+        };
+
         GCodeParser m_parser;
         PrintConfig m_config;
         EUnits m_units;
@@ -166,7 +177,10 @@ namespace Slic3r {
         std::vector<double> m_filament_load_times;
         std::vector<double> m_filament_unload_times;
 
+        RepetierStore m_repetier_store;
+
         std::vector<GCodeMove> m_moves;
+
     public:
         GCodeProcessor() { reset(); }
 
@@ -210,8 +224,6 @@ namespace Slic3r {
         bool process_G22(const GCodeLine& line);
         // Firmware controlled Unretract
         bool process_G23(const GCodeLine& line);
-        // Move to Origin (Home)
-        bool process_G28(const GCodeLine& line);
         // Set to Absolute Positioning
         bool process_G90(const GCodeLine& line);
         // Set to Relative Positioning
@@ -342,6 +354,12 @@ namespace Slic3r {
 
         float get_acceleration(ETimeEstimateMode mode) const { return m_acceleration[mode]; }
         void set_acceleration(float acceleration);
+
+        const Position& get_repetier_store_position() const { return m_repetier_store.position; }
+        void set_repetier_store_position(const Position& position) { m_repetier_store.position = position; }
+
+        float get_repetier_store_feedrate() const { return m_repetier_store.feedrate; }
+        void set_repetier_store_feedrate(float feedrate) { m_repetier_store.feedrate = feedrate; }
 
         void store_move(GCodeMove::EType type);
     };

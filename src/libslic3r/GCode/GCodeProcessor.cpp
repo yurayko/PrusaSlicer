@@ -310,6 +310,8 @@ void GCodeProcessor::reset()
     m_filament_load_times.clear();
     m_filament_unload_times.clear();
 
+    m_repetier_store.reset();
+
     m_moves.clear();
 }
 
@@ -412,8 +414,6 @@ bool GCodeProcessor::process_gcode_line(const GCodeLine& line)
                 case 22: { return process_G22(line); }
                 // Firmware controlled Unretract
                 case 23: { return process_G23(line); }
-                // Move to Origin (Home)
-                case 28: { return process_G28(line); }
                 // Set to Absolute Positioning
                 case 90: { return process_G90(line); }
                 // Set to Relative Positioning
@@ -565,14 +565,6 @@ bool GCodeProcessor::process_G23(const GCodeLine& line)
     return true;
 }
 
-bool GCodeProcessor::process_G28(const GCodeLine& line)
-{
-    // GCodeTimeEstimator
-
-    std::cout << "G28" << std::endl;
-    return true;
-}
-
 bool GCodeProcessor::process_G90(const GCodeLine& line)
 {
     set_global_positioning_type(Absolute);
@@ -604,48 +596,15 @@ bool GCodeProcessor::process_G92(const GCodeLine& line)
         }
     }
 
-//    if (line.has(X))
-//    {
-//        set_axis_origin(X, get_axis_position(X) - line.value(X) * lengthsScaleFactor);
-//        anyFound = true;
-//    }
-//
-//    if (line.has(Y))
-//    {
-//        set_axis_origin(Y, get_axis_position(Y) - line.value(Y) * lengthsScaleFactor);
-//        anyFound = true;
-//    }
-//
-//    if (line.has(Z))
-//    {
-//        set_axis_origin(Z, get_axis_position(Z) - line.value(Z) * lengthsScaleFactor);
-//        anyFound = true;
-//    }
-//
-//    if (line.has(E))
-//    {
-//        set_axis_origin(E, get_axis_position(E) - line.value(E) * lengthsScaleFactor);
-//        anyFound = true;
-//    }
-
     if (!anyFound)
-    {
         set_origin(get_end_position());
-//        for (unsigned char i = X; i <= E; ++i)
-//        {
-//            Axis a = (Axis)i;
-//            set_axis_origin(a, get_axis_position(a));
-//        }
-    }
 
     return true;
 }
 
 bool GCodeProcessor::process_M1(const GCodeLine& line)
 {
-    // GCodeTimeEstimator
-
-    std::cout << "M1" << std::endl;
+//    _simulate_st_synchronize();
     return true;
 }
 
@@ -663,33 +622,60 @@ bool GCodeProcessor::process_M83(const GCodeLine& line)
 
 bool GCodeProcessor::process_M106(const GCodeLine& line)
 {
-    // GCodeAnalyzer
-
-    std::cout << "M106" << std::endl;
+    if (!line.has('P'))
+    {
+        // The absence of P means the print cooling fan, so ignore anything else.
+        if (line.has('S'))
+            set_fan_speed((100.0f / 256.0f) * line.value('S'));
+        else
+            set_fan_speed(100.0f);
+    }
     return true;
 }
 
 bool GCodeProcessor::process_M107(const GCodeLine& line)
 {
-    // GCodeAnalyzer
-
-    std::cout << "M107" << std::endl;
+    set_fan_speed(0.0f);
     return true;
 }
 
 bool GCodeProcessor::process_M108(const GCodeLine& line)
 {
-    // GCodeAnalyzer
+    // M108 is used by Sailfish to change active tool.
+    // They have to be processed otherwise toolchanges will be unrecognised
+    // by the analyzer - see https://github.com/prusa3d/PrusaSlicer/issues/2566
+    // see also process_M135()
 
-    std::cout << "M108" << std::endl;
+    if (get_gcode_flavor() == gcfSailfish)
+    {
+        std::string cmd = line.raw();
+        size_t T_pos = cmd.find("T");
+        if (T_pos != std::string::npos)
+        {
+            cmd = cmd.substr(T_pos);
+            return process_T(GCodeLine(cmd));
+        }
+    }
     return true;
 }
 
 bool GCodeProcessor::process_M135(const GCodeLine& line)
 {
-    // GCodeAnalyzer
+    // M135 is used by MakerWare to change active tool.
+    // They have to be processed otherwise toolchanges will be unrecognised
+    // by the analyzer - see https://github.com/prusa3d/PrusaSlicer/issues/2566
+    // see also process_M108()
 
-    std::cout << "M135" << std::endl;
+    if (get_gcode_flavor() == gcfMakerWare)
+    {
+        std::string cmd = line.raw();
+        size_t T_pos = cmd.find("T");
+        if (T_pos != std::string::npos)
+        {
+            cmd = cmd.substr(T_pos);
+            return process_T(GCodeLine(cmd));
+        }
+    }
     return true;
 }
 
@@ -706,18 +692,6 @@ bool GCodeProcessor::process_M201(const GCodeLine& line)
         if (line.has(a))
             set_axis_max_acceleration(a, line.value(a) * factor);
     }
-
-//    if (line.has(X))
-//        set_axis_max_acceleration(X, line.value(X) * factor);
-//
-//    if (line.has(Y))
-//        set_axis_max_acceleration(Y, line.value(Y) * factor);
-//
-//    if (line.has(Z))
-//        set_axis_max_acceleration(Z, line.value(Z) * factor);
-//
-//    if (line.has(E))
-//        set_axis_max_acceleration(E, line.value(E) * factor);
 
     return true;
 }
@@ -740,18 +714,6 @@ bool GCodeProcessor::process_M203(const GCodeLine& line)
         if (line.has(a))
             set_axis_max_feedrate(a, line.value(a) * factor);
     }
-
-//    if (line.has(X))
-//        set_axis_max_feedrate(X, line.value(X) * factor);
-//
-//    if (line.has(Y))
-//        set_axis_max_feedrate(Y, line.value(Y) * factor);
-//
-//    if (line.has(Z))
-//        set_axis_max_feedrate(Z, line.value(Z) * factor);
-//
-//    if (line.has(E))
-//        set_axis_max_feedrate(E, line.value(E) * factor);
 
     return true;
 }
@@ -823,17 +785,47 @@ bool GCodeProcessor::process_M221(const GCodeLine& line)
 
 bool GCodeProcessor::process_M401(const GCodeLine& line)
 {
-    // GCodeAnalyzer
+    if (get_gcode_flavor() == gcfRepetier)
+    {
+        set_repetier_store_position(get_end_position());
+        set_repetier_store_feedrate(get_feedrate());
+    }
 
-    std::cout << "M401" << std::endl;
     return true;
 }
 
 bool GCodeProcessor::process_M402(const GCodeLine& line)
 {
-    // GCodeAnalyzer
+    if (get_gcode_flavor() == gcfRepetier)
+    {
+        // see for reference:
+        // https://github.com/repetier/Repetier-Firmware/blob/master/src/ArduinoAVR/Repetier/Repetier.ino
+        // and
+        // https://github.com/repetier/Repetier-Firmware/blob/master/src/ArduinoAVR/Repetier/Printer.cpp
+        // void Printer::GoToMemoryPosition(bool x, bool y, bool z, bool e, float feed)
 
-    std::cout << "M402" << std::endl;
+        bool has_xyz = !(line.has(X) || line.has(Y) || line.has(Z));
+
+        const Position& store_position = get_repetier_store_position();
+        float store_feedrate = get_repetier_store_feedrate();
+
+        for (unsigned char i = X; i <= Z; ++i)
+        {
+            Axis a = (Axis)i;
+            if (has_xyz || line.has(a))
+            {
+                if (store_position[i] != FLT_MAX)
+                    set_axis_position(a, store_position[i]);
+            }
+        }
+
+        if (store_position[E] != FLT_MAX)
+            set_axis_position(E, store_position[E]);
+
+        if (!line.has(F) && (store_feedrate != FLT_MAX))
+            set_feedrate(store_feedrate);
+    }
+
     return true;
 }
 
@@ -845,18 +837,6 @@ bool GCodeProcessor::process_M566(const GCodeLine& line)
         if (line.has(a))
             set_axis_max_jerk(a, line.value(a) * MMMIN_TO_MMSEC);
     }
-
-//    if (line.has(X))
-//        set_axis_max_jerk(X, line.value(X) * MMMIN_TO_MMSEC);
-//
-//    if (line.has(Y))
-//        set_axis_max_jerk(Y, line.value(Y) * MMMIN_TO_MMSEC);
-//
-//    if (line.has(Z))
-//        set_axis_max_jerk(Z, line.value(Z) * MMMIN_TO_MMSEC);
-//
-//    if (line.has(E))
-//        set_axis_max_jerk(E, line.value(E) * MMMIN_TO_MMSEC);
 
     return true;
 }
