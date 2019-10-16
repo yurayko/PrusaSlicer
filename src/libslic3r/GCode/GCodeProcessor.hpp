@@ -155,8 +155,9 @@ namespace Slic3r {
         unsigned int m_extruders_count;
         MachineLimits m_machine_limits[Num_Modes];
         Metadata m_data;
-        Position m_start_position;
-        Position m_end_position;
+        Position m_start_position;       // mm
+        Position m_end_position;         // mm
+        Position m_origin;               // mm
         float m_acceleration[Num_Modes]; // mm/s^2
         float m_extrude_factor_override_percentage;
 
@@ -266,8 +267,6 @@ namespace Slic3r {
         EPositioningType get_e_local_positioning_type() const { return m_e_local_positioning_type; }
         void set_e_local_positioning_type(EPositioningType type) { m_e_local_positioning_type = type; }
 
-        float get_axis_position(Axis axis) const { return m_end_position[axis]; }
-
         float get_feedrate() const { return m_data.feedrate; }
         void set_feedrate(float feedrate) { m_data.feedrate = feedrate; }
 
@@ -291,9 +290,6 @@ namespace Slic3r {
 
         unsigned int get_cp_color_id() const { return m_data.cp_color_id; }
         void set_cp_color_id(unsigned int id) { m_data.cp_color_id = id; }
-
-        float get_acceleration(ETimeEstimateMode mode) const { return m_acceleration[mode]; }
-        void set_acceleration(float acceleration);
 
         float get_extrude_factor_override_percentage() const { return m_extrude_factor_override_percentage; }
         void set_extrude_factor_override_percentage(float percentage) { m_extrude_factor_override_percentage = percentage; }
@@ -333,6 +329,19 @@ namespace Slic3r {
         void set_start_position(const Position& position) { m_start_position = position; }
 
         const Position& get_end_position() const { return m_end_position; }
+        void set_end_position(const Position& position) { m_end_position = position; }
+
+        float get_axis_position(Axis axis) const { return m_end_position[axis]; }
+        void set_axis_position(Axis axis, float position) { m_end_position[axis] = position; }
+
+        const Position& get_origin() const { return m_origin; }
+        void set_origin(const Position& position) { m_origin = position; }
+
+        float get_axis_origin(Axis axis) const { return m_origin[axis]; }
+        void set_axis_origin(Axis axis, float position) { m_origin[axis] = position; }
+
+        float get_acceleration(ETimeEstimateMode mode) const { return m_acceleration[mode]; }
+        void set_acceleration(float acceleration);
 
         void store_move(GCodeMove::EType type);
     };

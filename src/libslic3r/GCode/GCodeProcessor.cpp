@@ -3,9 +3,11 @@
 
 #if ENABLE_GCODE_PROCESSOR
 #include <boost/log/trivial.hpp>
+#include <fstream>
 
 static const float MMMIN_TO_MMSEC = 1.0f / 60.0f;
 static const float INCHES_TO_MM = 25.4f;
+static const float MILLISEC_TO_SEC = 0.001f;
 
 static const float DEFAULT_AXIS_MAX_FEEDRATE[] = { 500.0f, 500.0f, 12.0f, 120.0f }; // Prusa Firmware 1_75mm_MK2
 static const float DEFAULT_AXIS_MAX_ACCELERATION[] = { 9000.0f, 9000.0f, 500.0f, 10000.0f }; // Prusa Firmware 1_75mm_MK2
@@ -291,6 +293,7 @@ void GCodeProcessor::reset()
 
     ::memset(m_start_position.data(), 0, sizeof(Position));
     ::memset(m_end_position.data(), 0, sizeof(Position));
+    ::memset(m_origin.data(), 0, sizeof(Position));
 
     m_acceleration[Normal] = 0.0f;
     m_acceleration[Silent] = 0.0f;
@@ -498,9 +501,23 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
 
 bool GCodeProcessor::process_G4(const GCodeLine& line)
 {
-    // GCodeTimeEstimator
+    GCodeFlavor flavor = get_gcode_flavor();
 
-    std::cout << "G4" << std::endl;
+    if (line.has('P'))
+        set_additional_time(get_additional_time() + line.value('P') * MILLISEC_TO_SEC);
+
+    // see: http://reprap.org/wiki/G-code#G4:_Dwell
+    if ((flavor == gcfRepetier) ||
+        (flavor == gcfMarlin) ||
+        (flavor == gcfSmoothie) ||
+        (flavor == gcfRepRap))
+    {
+        if (line.has('S'))
+            set_additional_time(get_additional_time() + line.value('P'));
+    }
+
+//    _simulate_st_synchronize();
+
     return true;
 }
 
@@ -570,10 +587,57 @@ bool GCodeProcessor::process_G91(const GCodeLine& line)
 
 bool GCodeProcessor::process_G92(const GCodeLine& line)
 {
-    // GCodeAnalyzer
-    // GCodeTimeEstimator
+    float lengthsScaleFactor = (get_units() == Inches) ? INCHES_TO_MM : 1.0f;
+    bool anyFound = false;
 
-    std::cout << "G92" << std::endl;
+    for (unsigned char i = X; i <= E; ++i)
+    {
+        Axis a = (Axis)i;
+        if (line.has(a))
+        {
+            set_axis_origin(a, get_axis_position(a) - line.value(a) * lengthsScaleFactor);
+            anyFound = true;
+        }
+        else if (a == E)
+        {
+//            _simulate_st_synchronize();
+        }
+    }
+
+//    if (line.has(X))
+//    {
+//        set_axis_origin(X, get_axis_position(X) - line.value(X) * lengthsScaleFactor);
+//        anyFound = true;
+//    }
+//
+//    if (line.has(Y))
+//    {
+//        set_axis_origin(Y, get_axis_position(Y) - line.value(Y) * lengthsScaleFactor);
+//        anyFound = true;
+//    }
+//
+//    if (line.has(Z))
+//    {
+//        set_axis_origin(Z, get_axis_position(Z) - line.value(Z) * lengthsScaleFactor);
+//        anyFound = true;
+//    }
+//
+//    if (line.has(E))
+//    {
+//        set_axis_origin(E, get_axis_position(E) - line.value(E) * lengthsScaleFactor);
+//        anyFound = true;
+//    }
+
+    if (!anyFound)
+    {
+        set_origin(get_end_position());
+//        for (unsigned char i = X; i <= E; ++i)
+//        {
+//            Axis a = (Axis)i;
+//            set_axis_origin(a, get_axis_position(a));
+//        }
+    }
+
     return true;
 }
 
@@ -854,17 +918,6 @@ bool GCodeProcessor::process_gcode_comment(const GCodeLine& line)
     return true;
 }
 
-void GCodeProcessor::set_acceleration(float acceleration)
-{
-    for (int i = Normal; i <= Silent; ++i)
-    {
-        m_acceleration[i] = (m_machine_limits[i].max_acceleration == 0.0f) ?
-            acceleration :
-            // Clamp the acceleration with the maximum.
-            std::min(m_machine_limits[i].max_acceleration, acceleration);
-    }
-}
-
 float GCodeProcessor::get_filament_load_time(unsigned int id_extruder)
 {
     return
@@ -941,6 +994,17 @@ void GCodeProcessor::set_axis_max_jerk(Axis axis, float jerk)
     for (int i = Normal; i <= Silent; ++i)
     {
         m_machine_limits[i].axis_max_jerk[axis] = jerk;
+    }
+}
+
+void GCodeProcessor::set_acceleration(float acceleration)
+{
+    for (int i = Normal; i <= Silent; ++i)
+    {
+        m_acceleration[i] = (m_machine_limits[i].max_acceleration == 0.0f) ?
+            acceleration :
+            // Clamp the acceleration with the maximum.
+            std::min(m_machine_limits[i].max_acceleration, acceleration);
     }
 }
 
