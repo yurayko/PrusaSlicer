@@ -707,6 +707,23 @@ void GCode::do_export(Print *print, const char *path, GCodePreviewData *preview_
         throw std::runtime_error(msg);
     }
 
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_GCODE_PROCESSOR
+    m_processor.reset();
+    m_processor.apply_config(print->config());
+//    m_processor.set_gcode_flavor(print->config().gcode_flavor);
+//    std::map<unsigned int, Vec2d> extruders_offsets;
+//    for (unsigned int extruder_id : print->extruders())
+//    {
+//        Vec2d offset = print->config().extruder_offset.get_at(extruder_id);
+//        if (!offset.isApprox(Vec2d::Zero()))
+//            extruders_offsets[extruder_id] = offset;
+//    }
+//    m_processor.set_extruders_offsets(extruders_offsets);
+    m_processor.process_file(path_tmp);
+#endif // ENABLE_GCODE_PROCESSOR
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
     GCodeTimeEstimator::PostProcessData normal_data = m_normal_time_estimator.get_post_process_data();
     GCodeTimeEstimator::PostProcessData silent_data = m_silent_time_estimator.get_post_process_data();
 
