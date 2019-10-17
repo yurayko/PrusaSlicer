@@ -3,6 +3,9 @@
 
 #if ENABLE_GCODE_PROCESSOR
 #include <boost/log/trivial.hpp>
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+#include <boost/filesystem/path.hpp>
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 #include <fstream>
 
 static const float MMMIN_TO_MMSEC = 1.0f / 60.0f;
@@ -18,6 +21,21 @@ static const float DEFAULT_MINIMUM_TRAVEL_FEEDRATE = 0.0f; // from Prusa Firmwar
 static const float DEFAULT_EXTRUDE_FACTOR_OVERRIDE_PERCENTAGE = 1.0f; // 100 percent
 
 static const unsigned int UNLOADED_EXTRUDER_ID = (unsigned int)-1;
+
+std::string to_string(const Slic3r::GCodeProcessor::Position& position)
+{
+    std::string ret = "(";
+    for (int i = Slic3r::X; i <= Slic3r::E; ++i)
+    {
+        if (i > Slic3r::X)
+            ret += ", ";
+
+        ret += std::to_string(position[i]);
+    }
+
+    ret += ")";
+    return ret;
+}
 
 namespace Slic3r {
 
@@ -272,14 +290,46 @@ void GCodeProcessor::Metadata::reset()
     height = 0.0f;
     feedrate = 0.0f;
     fan_speed = 0.0f;
-    // extruder_id is currently used to correctly calculate filament load / unload times 
-    // into the total print time. This is currently only really used by the MK3 MMU2:
-    // Extruder id (-1) means no filament is loaded yet, all the filaments are parked in the MK3 MMU2 unit.
-    extruder_id = UNLOADED_EXTRUDER_ID;
+    extruder_id = 0;
     color_id = 0;
 }
 
-std::string GCodeProcessor::GCodeMove::to_string() const
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+std::string GCodeProcessor::Metadata::to_string() const
+{
+    std::string ret = "Role:";
+
+    switch (extrusion_role)
+    {
+    case erNone: {ret += "None"; break; }
+    case erPerimeter: {ret += "Perimeter"; break; }
+    case erExternalPerimeter: {ret += "ExternalPerimeter"; break; }
+    case erOverhangPerimeter: {ret += "OverhangPerimeter"; break; }
+    case erInternalInfill: {ret += "InternalInfill"; break; }
+    case erSolidInfill: {ret += "SolidInfill"; break; }
+    case erTopSolidInfill: {ret += "TopSolidInfill"; break; }
+    case erBridgeInfill: {ret += "BridgeInfill"; break; }
+    case erGapFill: {ret += "GapFill"; break; }
+    case erSkirt: {ret += "Skirt"; break; }
+    case erSupportMaterial: {ret += "SupportMaterial"; break; }
+    case erSupportMaterialInterface: {ret += "SupportMaterialInterface"; break; }
+    case erWipeTower: {ret += "WipeTower"; break; }
+    case erCustom: {ret += "Custom"; break; }
+    case erMixed: {ret += "Mixed"; break; }
+    }
+
+    ret += ", extr:" + std::to_string(extruder_id);
+    ret += ", color:" + std::to_string(color_id);
+    ret += ", w:" + std::to_string(width);
+    ret += ", h:" + std::to_string(height);
+    ret += ", f:" + std::to_string(feedrate);
+    ret += ", fan speed:" + std::to_string(fan_speed);
+    ret += ", mm3_per_mm:" + std::to_string(mm3_per_mm);
+
+    return ret;
+}
+
+std::string GCodeProcessor::Move::to_string() const
 {
     std::string ret;
 
@@ -289,19 +339,18 @@ std::string GCodeProcessor::GCodeMove::to_string() const
     case Retract: { ret = "Retract"; break; }
     case Unretract: { ret = "Unretract"; break; }
     case Tool_change: { ret = "Tool_change"; break; }
-    case Move: { ret = "Move"; break; }
+    case Travel: { ret = "Travel"; break; }
     case Extrude: { ret = "Extrude"; break; }
     };
 
-/*
-    Metadata data;
+    ret += ", " + data.to_string();
 
-    Position start_position; // mm
-    Position end_position;   // mm
-*/
+    ret += " start:" + ::to_string(start_position);
+    ret += " end:" + ::to_string(end_position);
 
     return ret;
 }
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 
 void GCodeProcessor::RepetierStore::reset()
 {
@@ -349,6 +398,10 @@ void GCodeProcessor::reset()
     m_machine_limits[Silent] = MachineLimits(); 
 
     m_data.reset();
+    // extruder_id is used to correctly calculate filament load / unload times 
+    // into the total print time. This is currently only really used by the MK3 MMU2:
+    // Extruder id (-1) means no filament is loaded yet, all the filaments are parked in the MK3 MMU2 unit.
+    m_data.extruder_id = UNLOADED_EXTRUDER_ID;
 
     m_filament_load_times.clear();
     m_filament_unload_times.clear();
@@ -376,6 +429,8 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
     const ConfigOptionStrings* extruders_opt = dynamic_cast<const ConfigOptionStrings*>(m_config.option("extruder_colour"));
     const ConfigOptionStrings* filamemts_opt = dynamic_cast<const ConfigOptionStrings*>(m_config.option("filament_colour"));
     set_extruders_count(std::max((unsigned int)extruders_opt->values.size(), (unsigned int)filamemts_opt->values.size()));
+
+//    set_extruder_id((get_extruders_count() > 0) ? -1 : 0);
 
     if (m_config.gcode_flavor.value == gcfMarlin)
     {
@@ -422,7 +477,17 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
 
 bool GCodeProcessor::process_file(const std::string& filename)
 {
-    return m_parser.parse_file(filename, [this](const GCodeLine& line) { process_gcode_line(line); });
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+    boost::filesystem::path moves_path(filename);
+    moves_path.replace_extension("processor");
+
+    m_out_moves.open(moves_path.string());
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+    bool res = m_parser.parse_file(filename, [this](const GCodeLine& line) { process_gcode_line(line); });
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+    m_out_moves.close();
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+    return res;
 }
 
 bool GCodeProcessor::process_gcode_line(const GCodeLine& line)
@@ -536,10 +601,74 @@ bool GCodeProcessor::process_gcode_line(const GCodeLine& line)
 
 bool GCodeProcessor::process_G1(const GCodeLine& line)
 {
-    // GCodeAnalyzer
-    // GCodeTimeEstimator
+    auto axis_absolute_position = [this](Axis axis, const GCodeLine& lineG1) -> float
+    {
+        float current_absolute_position = get_axis_position(axis);
+        float current_origin = get_axis_origin(axis);
+        float lengthsScaleFactor = (get_units() == Inches) ? INCHES_TO_MM : 1.0f;
 
-    std::cout << "G1" << std::endl;
+        bool is_relative = (get_global_positioning_type() == Relative);
+        if (axis == E)
+            is_relative |= (get_e_local_positioning_type() == Relative);
+
+        if (lineG1.has(axis))
+        {
+            float ret = lineG1.value(axis) * lengthsScaleFactor;
+            return is_relative ? current_absolute_position + ret : ret + current_origin;
+        }
+        else
+            return current_absolute_position;
+    };
+
+    // updates axes positions from line
+    Position new_pos;
+    for (unsigned char a = X; a <= E; ++a)
+    {
+        new_pos[a] = axis_absolute_position((Axis)a, line);
+    }
+
+    // updates feedrate from line, if present
+    if (line.has('F'))
+        set_feedrate(line.value('F') * MMMIN_TO_MMSEC);
+
+    // calculates movement deltas
+    Position delta_pos;
+    for (unsigned char a = X; a <= E; ++a)
+    {
+        delta_pos[a] = new_pos[a] - get_axis_position((Axis)a);
+    }
+
+    // Detects move type
+    Move::EType type = Move::Noop;
+
+    if (delta_pos[E] < 0.0f)
+    {
+        if ((delta_pos[X] != 0.0f) || (delta_pos[Y] != 0.0f) || (delta_pos[Z] != 0.0f))
+            type = Move::Travel;
+        else
+            type = Move::Retract;
+    }
+    else if (delta_pos[E] > 0.0f)
+    {
+        if ((delta_pos[X] == 0.0f) && (delta_pos[Y] == 0.0f) && (delta_pos[Z] == 0.0f))
+            type = Move::Unretract;
+        else if ((delta_pos[X] != 0.0f) || (delta_pos[Y] != 0.0f))
+            type = Move::Extrude;
+    }
+    else if ((delta_pos[X] != 0.0f) || (delta_pos[Y] != 0.0f) || (delta_pos[Z] != 0.0f))
+        type = Move::Travel;
+
+    ExtrusionRole role = get_extrusion_role();
+    if ((type == Move::Extrude) && ((get_width() == 0.0f) || (get_height() == 0.0f) || !is_valid_extrusion_role(role)))
+        type = Move::Travel;
+
+    // updates position
+    set_end_position(new_pos);
+
+    // stores the move
+    if (type != Move::Noop)
+        store_move(type);
+
     return true;
 }
 
@@ -568,7 +697,7 @@ bool GCodeProcessor::process_G4(const GCodeLine& line)
 bool GCodeProcessor::process_G10(const GCodeLine& line)
 {
     // stores retract move
-    store_move(GCodeMove::Retract);
+    store_move(Move::Retract);
 
     return true;
 }
@@ -576,7 +705,7 @@ bool GCodeProcessor::process_G10(const GCodeLine& line)
 bool GCodeProcessor::process_G11(const GCodeLine& line)
 {
     // stores unretract move
-    store_move(GCodeMove::Unretract);
+    store_move(Move::Unretract);
 
     return true;
 }
@@ -596,7 +725,7 @@ bool GCodeProcessor::process_G21(const GCodeLine& line)
 bool GCodeProcessor::process_G22(const GCodeLine& line)
 {
     // stores retract move
-    store_move(GCodeMove::Retract);
+    store_move(Move::Retract);
 
     return true;
 }
@@ -604,7 +733,7 @@ bool GCodeProcessor::process_G22(const GCodeLine& line)
 bool GCodeProcessor::process_G23(const GCodeLine& line)
 {
     // stores unretract move
-    store_move(GCodeMove::Unretract);
+    store_move(Move::Unretract);
 
     return true;
 }
@@ -906,9 +1035,9 @@ bool GCodeProcessor::process_T(const GCodeLine& line)
 
     if (cmd.length() > 1)
     {
-        unsigned int curr_id = get_extruder_id();
+        unsigned int old_id = get_extruder_id();
         unsigned int new_id = (unsigned int)::strtol(cmd.substr(1).c_str(), nullptr, 10);
-        if (curr_id != new_id)
+        if (old_id != new_id)
         {
             if (new_id >= m_extruders_count)
             {
@@ -919,14 +1048,15 @@ bool GCodeProcessor::process_T(const GCodeLine& line)
             {
                 // Specific to the MK3 MMU2: The initial extruder ID is set to -1 indicating
                 // that the filament is parked in the MMU2 unit and there is nothing to be unloaded yet.
-                set_additional_time(get_additional_time() + get_filament_unload_time(curr_id));
+                set_additional_time(get_additional_time() + get_filament_unload_time(old_id));
                 set_extruder_id(new_id);
                 set_additional_time(get_additional_time() + get_filament_load_time(new_id));
 //                _simulate_st_synchronize();
             }
 
             // stores tool change move
-            store_move(GCodeMove::Tool_change);
+            if (old_id != UNLOADED_EXTRUDER_ID)
+                store_move(Move::Tool_change);
         }
     }
 
@@ -1040,24 +1170,24 @@ bool GCodeProcessor::process_color_change_tag()
     return true;
 }
 
-float GCodeProcessor::get_filament_load_time(unsigned int id_extruder)
+float GCodeProcessor::get_filament_load_time(unsigned int extruder_id)
 {
     return
-        (m_filament_load_times.empty() || (id_extruder == UNLOADED_EXTRUDER_ID)) ?
+        (m_filament_load_times.empty() || (extruder_id == UNLOADED_EXTRUDER_ID)) ?
         0.0f :
-        (m_filament_load_times.size() <= id_extruder) ?
+        (m_filament_load_times.size() <= extruder_id) ?
         (float)m_filament_load_times.front() :
-        (float)m_filament_load_times[id_extruder];
+        (float)m_filament_load_times[extruder_id];
 }
 
-float GCodeProcessor::get_filament_unload_time(unsigned int id_extruder)
+float GCodeProcessor::get_filament_unload_time(unsigned int extruder_id)
 {
     return
-        (m_filament_unload_times.empty() || (id_extruder == UNLOADED_EXTRUDER_ID)) ?
+        (m_filament_unload_times.empty() || (extruder_id == UNLOADED_EXTRUDER_ID)) ?
         0.0f :
-        (m_filament_unload_times.size() <= id_extruder) ?
+        (m_filament_unload_times.size() <= extruder_id) ?
         (float)m_filament_unload_times.front() :
-        (float)m_filament_unload_times[id_extruder];
+        (float)m_filament_unload_times[extruder_id];
 }
 
 void GCodeProcessor::set_max_acceleration(float acceleration)
@@ -1135,11 +1265,14 @@ bool GCodeProcessor::is_valid_extrusion_role(int value) const
     return ((int)erNone <= value) && (value <= (int)erMixed);
 }
 
-void GCodeProcessor::store_move(GCodeMove::EType type)
+void GCodeProcessor::store_move(Move::EType type)
 {
-    Metadata data(get_extrusion_role(), get_mm3_per_mm(), get_width(), get_height(), get_feedrate(), get_fan_speed(), get_extruder_id(), get_color_id());
+    unsigned int extruder_id = get_extruder_id();
+    extruder_id = (extruder_id == UNLOADED_EXTRUDER_ID) ? 0 : extruder_id;
+    Metadata data(get_extrusion_role(), get_mm3_per_mm(), get_width(), get_height(), get_feedrate(), get_fan_speed(), extruder_id, get_color_id());
 
-    ExtrudersOffsetsMap::iterator extr_it = m_extruders_offsets.find(get_extruder_id());
+    // FIXME: Could this calculation be moved into process_G1() ?
+    ExtrudersOffsetsMap::iterator extr_it = m_extruders_offsets.find(extruder_id);
     Vec2d extruder_offset = (extr_it != m_extruders_offsets.end()) ? extr_it->second : Vec2d::Zero();
     Position start_position = get_start_position();
     start_position[0] += (float)extruder_offset(0);
@@ -1150,7 +1283,12 @@ void GCodeProcessor::store_move(GCodeMove::EType type)
 
     m_moves.emplace_back(type, data, start_position, end_position);
 
-    std::cout << m_moves.back().to_string() << std::endl;
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+    if (m_out_moves.good())
+        m_out_moves << m_moves.back().to_string() << std::endl;
+
+//    std::cout << "Moves size: " << m_moves.size() << " (" << m_moves.size() * sizeof(Move) << " = " << (double)(m_moves.size() * sizeof(Move)) / (1024.0 * 1024.0) << "MB)" << std::endl;
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 }
 
 } /* namespace Slic3r */

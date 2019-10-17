@@ -110,6 +110,23 @@ GCodeAnalyzer::GCodeAnalyzer()
     reset();
 }
 
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+void GCodeAnalyzer::start_output(const std::string& filename)
+{
+    boost::filesystem::path moves_path(filename);
+    moves_path.replace_extension("analyzer");
+    m_out_moves.open(moves_path.string());
+}
+
+void GCodeAnalyzer::stop_output()
+{
+    if (m_out_moves.good())
+        m_out_moves.close();
+}
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
 void GCodeAnalyzer::set_extruder_offsets(const GCodeAnalyzer::ExtruderOffsetsMap& extruder_offsets)
 {
     m_extruder_offsets = extruder_offsets;
@@ -864,6 +881,80 @@ void GCodeAnalyzer::_store_move(GCodeAnalyzer::GCodeMove::EType type)
     Vec3d start_position = _get_start_position() + extruder_offset;
     Vec3d end_position = _get_end_position() + extruder_offset;
     it->second.emplace_back(type, _get_extrusion_role(), extruder_id, _get_mm3_per_mm(), _get_width(), _get_height(), _get_feedrate(), start_position, end_position, _get_delta_extrusion(), _get_fan_speed(), _get_cp_color_id());
+
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+    if (m_out_moves.good())
+    {
+        const GCodeMove& m = it->second.back();
+
+        std::string str;
+
+        switch (m.type)
+        {
+        case GCodeMove::Noop: { str = "Noop"; break; }
+        case GCodeMove::Retract: { str = "Retract"; break; }
+        case GCodeMove::Unretract: { str = "Unretract"; break; }
+        case GCodeMove::Tool_change: { str = "Tool_change"; break; }
+        case GCodeMove::Move: { str = "Travel"; break; }
+        case GCodeMove::Extrude: { str = "Extrude"; break; }
+        };
+
+        str += ", Role:";
+
+        switch (m.data.extrusion_role)
+        {
+        case erNone: {str += "None"; break; }
+        case erPerimeter: {str += "Perimeter"; break; }
+        case erExternalPerimeter: {str += "ExternalPerimeter"; break; }
+        case erOverhangPerimeter: {str += "OverhangPerimeter"; break; }
+        case erInternalInfill: {str += "InternalInfill"; break; }
+        case erSolidInfill: {str += "SolidInfill"; break; }
+        case erTopSolidInfill: {str += "TopSolidInfill"; break; }
+        case erBridgeInfill: {str += "BridgeInfill"; break; }
+        case erGapFill: {str += "GapFill"; break; }
+        case erSkirt: {str += "Skirt"; break; }
+        case erSupportMaterial: {str += "SupportMaterial"; break; }
+        case erSupportMaterialInterface: {str += "SupportMaterialInterface"; break; }
+        case erWipeTower: {str += "WipeTower"; break; }
+        case erCustom: {str += "Custom"; break; }
+        case erMixed: {str += "Mixed"; break; }
+        }
+
+        str += ", extr:" + std::to_string(m.data.extruder_id);
+        str += ", color:" + std::to_string(m.data.cp_color_id);
+        str += ", w:" + std::to_string(m.data.width);
+        str += ", h:" + std::to_string(m.data.height);
+        str += ", f:" + std::to_string(m.data.feedrate);
+        str += ", fan speed:" + std::to_string(m.data.fan_speed);
+        str += ", mm3_per_mm:" + std::to_string(m.data.mm3_per_mm);
+
+        str += " start:(";
+        for (int i = X; i <= Z; ++i)
+        {
+            if (i > X)
+                str += ", ";
+
+            str += std::to_string(m.start_position[i]);
+        }
+        str += ", " + std::to_string(m_state.start_extrusion);
+        str += ")";
+
+        str += " end:(";
+        for (int i = X; i <= Z; ++i)
+        {
+            if (i > X)
+                str += ", ";
+
+            str += std::to_string(m.end_position[i]);
+        }
+        str += ", " + std::to_string(_get_axis_position(E));
+        str += ")";
+
+        m_out_moves << str << std::endl;
+    }
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 }
 
 bool GCodeAnalyzer::_is_valid_extrusion_role(int value) const

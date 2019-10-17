@@ -5,6 +5,9 @@
 #include "PrintConfig.hpp"
 #include "ExtrusionEntity.hpp"
 
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+#include <boost/nowide/fstream.hpp>
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 #include <string>
 
 namespace Slic3r {
@@ -124,12 +127,15 @@ namespace Slic3r {
                 : extrusion_role(extrusion_role), mm3_per_mm(mm3_per_mm), width(width), height(height), feedrate(feedrate), fan_speed(fan_speed), 
                 extruder_id(extruder_id), color_id(color_id) {}
             void reset();
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+            std::string to_string() const;
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
         };
 
-    private:
         typedef std::array<float, NUM_AXES - 1> Position;
 
-        struct GCodeMove
+    private:
+        struct Move
         {
             enum EType : unsigned char
             {
@@ -137,7 +143,7 @@ namespace Slic3r {
                 Retract,
                 Unretract,
                 Tool_change,
-                Move,
+                Travel,
                 Extrude,
                 Num_Types
             };
@@ -148,10 +154,12 @@ namespace Slic3r {
             Position start_position; // mm
             Position end_position;   // mm
 
-            GCodeMove(EType type, const Metadata& data, const Position& start_position, const Position& end_position)
+            Move(EType type, const Metadata& data, const Position& start_position, const Position& end_position)
                 : type(type), data(data), start_position(start_position), end_position(end_position) {}
 
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
             std::string to_string() const;
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
         };
 
         struct RepetierStore
@@ -199,7 +207,10 @@ namespace Slic3r {
         RepetierStore m_repetier_store;
         ColorTimes m_color_times;
 
-        std::vector<GCodeMove> m_moves;
+        std::vector<Move> m_moves;
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+        boost::nowide::ofstream m_out_moves;
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 
     public:
         GCodeProcessor() { reset(); }
@@ -344,10 +355,10 @@ namespace Slic3r {
         float get_additional_time() const { return m_additional_time; }
         void set_additional_time(float time) { m_additional_time = time; }
 
-        float get_filament_load_time(unsigned int id_extruder);
+        float get_filament_load_time(unsigned int extruder_id);
         void set_filament_load_times(const std::vector<double>& filament_load_times) { m_filament_load_times = filament_load_times; }
 
-        float get_filament_unload_time(unsigned int id_extruder);
+        float get_filament_unload_time(unsigned int extruder_id);
         void set_filament_unload_times(const std::vector<double>& filament_unload_times) { m_filament_unload_times = filament_unload_times; }
 
         // Maximum acceleration for the machine. The firmware simulator will clamp the M204 Sxxx to this maximum.
@@ -404,7 +415,7 @@ namespace Slic3r {
         // Checks if the given int is a valid extrusion role (contained into enum ExtrusionRole)
         bool is_valid_extrusion_role(int value) const;
 
-        void store_move(GCodeMove::EType type);
+        void store_move(Move::EType type);
     };
 
 } /* namespace Slic3r */

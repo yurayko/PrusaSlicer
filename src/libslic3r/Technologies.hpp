@@ -40,6 +40,7 @@
 
 // Enable G-Code processor
 #define ENABLE_GCODE_PROCESSOR (1 && ENABLE_2_2_0_ALPHA1)
+#define ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT (1 && ENABLE_GCODE_PROCESSOR)
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 #endif // _technologies_h_

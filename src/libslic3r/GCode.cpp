@@ -676,6 +676,13 @@ void GCode::do_export(Print *print, const char *path, GCodePreviewData *preview_
 
     m_enable_analyzer = preview_data != nullptr;
 
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+    if (m_enable_analyzer)
+        m_analyzer.start_output(path_tmp);
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
     try {
         m_placeholder_parser_failed_templates.clear();
         this->_do_export(*print, file);
@@ -711,15 +718,6 @@ void GCode::do_export(Print *print, const char *path, GCodePreviewData *preview_
 #if ENABLE_GCODE_PROCESSOR
     m_processor.reset();
     m_processor.apply_config(print->config());
-//    m_processor.set_gcode_flavor(print->config().gcode_flavor);
-//    std::map<unsigned int, Vec2d> extruders_offsets;
-//    for (unsigned int extruder_id : print->extruders())
-//    {
-//        Vec2d offset = print->config().extruder_offset.get_at(extruder_id);
-//        if (!offset.isApprox(Vec2d::Zero()))
-//            extruders_offsets[extruder_id] = offset;
-//    }
-//    m_processor.set_extruders_offsets(extruders_offsets);
     m_processor.process_file(path_tmp);
 #endif // ENABLE_GCODE_PROCESSOR
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -744,6 +742,11 @@ void GCode::do_export(Print *print, const char *path, GCodePreviewData *preview_
         BOOST_LOG_TRIVIAL(debug) << "Preparing G-code preview data" << log_memory_info();
         m_analyzer.calc_gcode_preview_data(*preview_data, [print]() { print->throw_if_canceled(); });
         m_analyzer.reset();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+        m_analyzer.stop_output();
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     }
 
     if (rename_file(path_tmp, path))
