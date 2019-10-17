@@ -34,6 +34,7 @@ namespace Slic3r {
         std::string comment() const;
 
         const std::string& raw() const { return m_raw; }
+        std::string to_string() const;
 
     private:
         void set_axis(Axis axis, float value);
@@ -83,6 +84,12 @@ namespace Slic3r {
         };
 
     public:
+        static const std::string Extrusion_Role_Tag;
+        static const std::string Mm3_Per_Mm_Tag;
+        static const std::string Width_Tag;
+        static const std::string Height_Tag;
+        static const std::string Color_Change_Tag;
+
         struct MachineLimits
         {
             // hard limit for the acceleration, to which the firmware will clamp.
@@ -97,7 +104,6 @@ namespace Slic3r {
             float axis_max_jerk[NUM_AXES - 1];         // mm/s
 
             MachineLimits() { reset(); }
-
             void reset();
         };
 
@@ -110,14 +116,13 @@ namespace Slic3r {
             float feedrate; // mm/s
             float fan_speed; // percentage
             unsigned int extruder_id;
-            unsigned int cp_color_id;
+            unsigned int color_id;
 
             Metadata() { reset(); }
             Metadata(ExtrusionRole extrusion_role, float mm3_per_mm, float width, float height, float feedrate, float fan_speed, 
-                unsigned int extruder_id, unsigned int cp_color_id)
+                unsigned int extruder_id, unsigned int color_id)
                 : extrusion_role(extrusion_role), mm3_per_mm(mm3_per_mm), width(width), height(height), feedrate(feedrate), fan_speed(fan_speed), 
-                extruder_id(extruder_id), cp_color_id(cp_color_id) {}
-
+                extruder_id(extruder_id), color_id(color_id) {}
             void reset();
         };
 
@@ -145,6 +150,8 @@ namespace Slic3r {
 
             GCodeMove(EType type, const Metadata& data, const Position& start_position, const Position& end_position)
                 : type(type), data(data), start_position(start_position), end_position(end_position) {}
+
+            std::string to_string() const;
         };
 
         struct RepetierStore
@@ -153,7 +160,19 @@ namespace Slic3r {
             float feedrate;
 
             RepetierStore() { reset(); }
-            void reset() { position = { FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX }; feedrate = FLT_MAX; }
+            void reset();
+        };
+
+        // data to calculate color print times
+        struct ColorTimes
+        {
+            bool enabled;
+            std::vector<float> times;
+            float cache;
+
+            ColorTimes() { reset(); }
+            void reset();
+            void store_current_cache() { times.push_back(cache); }
         };
 
         GCodeParser m_parser;
@@ -178,6 +197,7 @@ namespace Slic3r {
         std::vector<double> m_filament_unload_times;
 
         RepetierStore m_repetier_store;
+        ColorTimes m_color_times;
 
         std::vector<GCodeMove> m_moves;
 
@@ -270,6 +290,21 @@ namespace Slic3r {
         // Process tags embedded into comments
         bool process_gcode_comment(const GCodeLine& line);
 
+        // Processes extrusion role tag
+        bool process_extrusion_role_tag(const std::string& comment, size_t pos);
+
+        // Processes mm3_per_mm tag
+        bool process_mm3_per_mm_tag(const std::string& comment, size_t pos);
+
+        // Processes width tag
+        bool process_width_tag(const std::string& comment, size_t pos);
+
+        // Processes height tag
+        bool process_height_tag(const std::string& comment, size_t pos);
+
+        // Processes color change tag
+        bool process_color_change_tag();
+
         EUnits get_units() const { return m_units; }
         void set_units(EUnits units) { m_units = units; }
 
@@ -300,8 +335,8 @@ namespace Slic3r {
         float get_fan_speed() const { return m_data.fan_speed; }
         void set_fan_speed(float fan_speed_percentage) { m_data.fan_speed = fan_speed_percentage; }
 
-        unsigned int get_cp_color_id() const { return m_data.cp_color_id; }
-        void set_cp_color_id(unsigned int id) { m_data.cp_color_id = id; }
+        unsigned int get_color_id() const { return m_data.color_id; }
+        void set_color_id(unsigned int id) { m_data.color_id = id; }
 
         float get_extrude_factor_override_percentage() const { return m_extrude_factor_override_percentage; }
         void set_extrude_factor_override_percentage(float percentage) { m_extrude_factor_override_percentage = percentage; }
@@ -360,6 +395,14 @@ namespace Slic3r {
 
         float get_repetier_store_feedrate() const { return m_repetier_store.feedrate; }
         void set_repetier_store_feedrate(float feedrate) { m_repetier_store.feedrate = feedrate; }
+
+        void enable_color_times(bool enable) { m_color_times.enabled = enable; }
+        float get_color_times_cache() const { return m_color_times.cache; }
+        void set_color_times_cache(float time) { m_color_times.cache = time; }
+        void store_current_color_times_cache() { m_color_times.store_current_cache(); }
+
+        // Checks if the given int is a valid extrusion role (contained into enum ExtrusionRole)
+        bool is_valid_extrusion_role(int value) const;
 
         void store_move(GCodeMove::EType type);
     };

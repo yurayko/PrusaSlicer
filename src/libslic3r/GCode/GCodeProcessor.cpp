@@ -276,8 +276,51 @@ void GCodeProcessor::Metadata::reset()
     // into the total print time. This is currently only really used by the MK3 MMU2:
     // Extruder id (-1) means no filament is loaded yet, all the filaments are parked in the MK3 MMU2 unit.
     extruder_id = UNLOADED_EXTRUDER_ID;
-    cp_color_id = 0;
+    color_id = 0;
 }
+
+std::string GCodeProcessor::GCodeMove::to_string() const
+{
+    std::string ret;
+
+    switch (type)
+    {
+    case Noop: { ret = "Noop"; break; }
+    case Retract: { ret = "Retract"; break; }
+    case Unretract: { ret = "Unretract"; break; }
+    case Tool_change: { ret = "Tool_change"; break; }
+    case Move: { ret = "Move"; break; }
+    case Extrude: { ret = "Extrude"; break; }
+    };
+
+/*
+    Metadata data;
+
+    Position start_position; // mm
+    Position end_position;   // mm
+*/
+
+    return ret;
+}
+
+void GCodeProcessor::RepetierStore::reset()
+{
+    position = { FLT_MAX, FLT_MAX, FLT_MAX, FLT_MAX };
+    feedrate = FLT_MAX;
+}
+
+void GCodeProcessor::ColorTimes::reset()
+{
+    enabled = false;
+    times.clear();
+    cache = 0.0f;
+}
+
+const std::string GCodeProcessor::Extrusion_Role_Tag = "__EXTRUSION_ROLE__: ";
+const std::string GCodeProcessor::Mm3_Per_Mm_Tag = "__MM3_PER_MM__:";
+const std::string GCodeProcessor::Width_Tag = "__WIDTH__:";
+const std::string GCodeProcessor::Height_Tag = "__HEIGHT__:";
+const std::string GCodeProcessor::Color_Change_Tag = "__COLOR_CHANGE__";
 
 void GCodeProcessor::reset()
 {
@@ -311,6 +354,7 @@ void GCodeProcessor::reset()
     m_filament_unload_times.clear();
 
     m_repetier_store.reset();
+    m_color_times.reset();
 
     m_moves.clear();
 }
@@ -891,10 +935,108 @@ bool GCodeProcessor::process_T(const GCodeLine& line)
 
 bool GCodeProcessor::process_gcode_comment(const GCodeLine& line)
 {
-    // GCodeAnalyzer
-    // GCodeTimeEstimator
+    std::string comment = line.comment();
 
-    std::cout << "tags" << std::endl;
+    // extrusion role tag
+    size_t pos = comment.find(Extrusion_Role_Tag);
+    if (pos != comment.npos)
+        return process_extrusion_role_tag(comment, pos);
+
+    // mm3 per mm tag
+    pos = comment.find(Mm3_Per_Mm_Tag);
+    if (pos != comment.npos)
+        return process_mm3_per_mm_tag(comment, pos);
+
+    // width tag
+    pos = comment.find(Width_Tag);
+    if (pos != comment.npos)
+        return process_width_tag(comment, pos);
+
+    // height tag
+    pos = comment.find(Height_Tag);
+    if (pos != comment.npos)
+        return process_height_tag(comment, pos);
+
+    // color change tag
+    pos = comment.find(Color_Change_Tag);
+    if (pos != comment.npos)
+        return process_color_change_tag();
+
+    BOOST_LOG_TRIVIAL(warning) << "Found unknown comment: " << comment;
+    return false;
+}
+
+bool GCodeProcessor::process_extrusion_role_tag(const std::string& comment, size_t pos)
+{
+    int role = (int)::strtol(comment.substr(pos + Extrusion_Role_Tag.length()).c_str(), nullptr, 10);
+    if (is_valid_extrusion_role(role))
+    {
+        set_extrusion_role((ExtrusionRole)role);
+        return true;
+    }
+    else
+    {
+        BOOST_LOG_TRIVIAL(warning) << "Found invalid extrusion role: " << comment;
+        return false;
+    }
+}
+
+bool GCodeProcessor::process_mm3_per_mm_tag(const std::string& comment, size_t pos)
+{
+    float value = (float)::strtod(comment.substr(pos + Mm3_Per_Mm_Tag.length()).c_str(), nullptr);
+    if (value > 0.0f)
+    {
+        set_mm3_per_mm(value);
+        return true;
+    }
+    else
+    {
+        BOOST_LOG_TRIVIAL(warning) << "Found invalid mm3_per_mm: " << comment;
+        return false;
+    }
+}
+
+bool GCodeProcessor::process_width_tag(const std::string& comment, size_t pos)
+{
+    float value = (float)::strtod(comment.substr(pos + Width_Tag.length()).c_str(), nullptr);
+    if (value > 0.0f)
+    {
+        set_width(value);
+        return true;
+    }
+    else
+    {
+        BOOST_LOG_TRIVIAL(warning) << "Found invalid width: " << comment;
+        return false;
+    }
+}
+
+bool GCodeProcessor::process_height_tag(const std::string& comment, size_t pos)
+{
+    float value = (float)::strtod(comment.substr(pos + Height_Tag.length()).c_str(), nullptr);
+    if (value > 0.0f)
+    {
+        set_height(value);
+        return true;
+    }
+    else
+    {
+        BOOST_LOG_TRIVIAL(warning) << "Found invalid height: " << comment;
+        return false;
+    }
+}
+
+bool GCodeProcessor::process_color_change_tag()
+{
+    set_color_id(get_color_id() + 1);
+    enable_color_times(true);
+//    _calculate_time();
+    if (get_color_times_cache() > 0.0f)
+    {
+        store_current_color_times_cache();
+        set_color_times_cache(0.0f);
+    }
+
     return true;
 }
 
@@ -988,9 +1130,14 @@ void GCodeProcessor::set_acceleration(float acceleration)
     }
 }
 
+bool GCodeProcessor::is_valid_extrusion_role(int value) const
+{
+    return ((int)erNone <= value) && (value <= (int)erMixed);
+}
+
 void GCodeProcessor::store_move(GCodeMove::EType type)
 {
-    Metadata data(get_extrusion_role(), get_mm3_per_mm(), get_width(), get_height(), get_feedrate(), get_fan_speed(), get_extruder_id(), get_cp_color_id());
+    Metadata data(get_extrusion_role(), get_mm3_per_mm(), get_width(), get_height(), get_feedrate(), get_fan_speed(), get_extruder_id(), get_color_id());
 
     ExtrudersOffsetsMap::iterator extr_it = m_extruders_offsets.find(get_extruder_id());
     Vec2d extruder_offset = (extr_it != m_extruders_offsets.end()) ? extr_it->second : Vec2d::Zero();
@@ -1002,6 +1149,8 @@ void GCodeProcessor::store_move(GCodeMove::EType type)
     end_position[1] += (float)extruder_offset(1);
 
     m_moves.emplace_back(type, data, start_position, end_position);
+
+    std::cout << m_moves.back().to_string() << std::endl;
 }
 
 } /* namespace Slic3r */
