@@ -112,14 +112,14 @@ GCodeAnalyzer::GCodeAnalyzer()
 
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
-void GCodeAnalyzer::start_output(const std::string& filename)
+void GCodeAnalyzer::start_debug_output(const std::string& filename)
 {
     boost::filesystem::path moves_path(filename);
-    moves_path.replace_extension("analyzer");
+    moves_path.replace_extension("analyzer_moves");
     m_out_moves.open(moves_path.string());
 }
 
-void GCodeAnalyzer::stop_output()
+void GCodeAnalyzer::stop_debug_output()
 {
     if (m_out_moves.good())
         m_out_moves.close();

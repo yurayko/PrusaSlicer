@@ -79,14 +79,14 @@ namespace Slic3r {
             Relative
         };
 
+    public:
         enum ETimeEstimateMode : unsigned char
         {
             Normal,
             Silent,
-            Num_Modes
+            Num_TimeEstimateModes
         };
 
-    public:
         static const std::string Extrusion_Role_Tag;
         static const std::string Mm3_Per_Mm_Tag;
         static const std::string Width_Tag;
@@ -132,9 +132,73 @@ namespace Slic3r {
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
         };
 
-        typedef std::array<float, NUM_AXES - 1> Position;
+        // A tuple on XYZE axes
+        typedef std::array<float, NUM_AXES - 1> AxesTuple;
 
     private:
+        // data to calculate time estimate
+        struct TimeFeedrates
+        {
+            float feedrate;              // mm/s
+            AxesTuple axis_feedrate;     // mm/s
+            AxesTuple abs_axis_feedrate; // mm/s
+            float safe_feedrate;         // mm/s
+
+            TimeFeedrates() { reset(); }
+            void reset();
+        };
+
+        struct TimeBlock
+        {
+            struct Profile
+            {
+                float entry;  // mm/s
+                float cruise; // mm/s
+                float exit;   // mm/s
+
+                Profile() { reset(); }
+                void reset();
+            };
+
+            struct Trapezoid
+            {
+                Profile profile;
+                float distance;         // mm
+                float accelerate_until; // mm
+                float decelerate_after; // mm
+
+                Trapezoid() { reset(); }
+                void reset();
+            };
+
+            struct Flags
+            {
+                bool recalculate;
+                bool nominal_length;
+
+                Flags() { reset(); }
+                void reset();
+            };
+
+            Profile profile;
+            Trapezoid trapezoid;
+            Flags flags;
+            float distance;        // mm
+            float acceleration;    // mm/s^2
+            float max_entry_speed; // mm/s
+            float safe_feedrate;   // mm/s
+
+            TimeBlock() { reset(); }
+            void reset();
+
+            // Calculates this block's trapezoid
+            void calculate_trapezoid();
+
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+            std::string to_string() const;
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+        };
+
         struct Move
         {
             enum EType : unsigned char
@@ -151,27 +215,30 @@ namespace Slic3r {
             EType type;
             Metadata data;
 
-            Position start_position; // mm
-            Position end_position;   // mm
+            AxesTuple start_position; // mm
+            AxesTuple end_position;   // mm
 
-            Move(EType type, const Metadata& data, const Position& start_position, const Position& end_position)
-                : type(type), data(data), start_position(start_position), end_position(end_position) {}
+            std::vector<TimeBlock> blocks;
+
+            Move(EType type, const Metadata& data, const AxesTuple& start_position, const AxesTuple& end_position, const std::vector<TimeBlock>& blocks)
+                : type(type), data(data), start_position(start_position), end_position(end_position), blocks(blocks) {}
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
             std::string to_string() const;
+            std::string to_string_as_block(ETimeEstimateMode mode) const;
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
         };
 
         struct RepetierStore
         {
-            Position position;
+            AxesTuple position;
             float feedrate;
 
             RepetierStore() { reset(); }
             void reset();
         };
 
-        // data to calculate color print times
+        // data to calculate color print time estimate
         struct ColorTimes
         {
             bool enabled;
@@ -191,12 +258,10 @@ namespace Slic3r {
         typedef std::map<unsigned int, Vec2d> ExtrudersOffsetsMap;
         ExtrudersOffsetsMap m_extruders_offsets;
         unsigned int m_extruders_count;
-        MachineLimits m_machine_limits[Num_Modes];
         Metadata m_data;
-        Position m_start_position;       // mm
-        Position m_end_position;         // mm
-        Position m_origin;               // mm
-        float m_acceleration[Num_Modes]; // mm/s^2
+        AxesTuple m_start_position;       // mm
+        AxesTuple m_end_position;         // mm
+        AxesTuple m_origin;               // mm
         float m_extrude_factor_override_percentage;
 
         float m_additional_time; // s
@@ -207,9 +272,17 @@ namespace Slic3r {
         RepetierStore m_repetier_store;
         ColorTimes m_color_times;
 
+        float m_acceleration[Num_TimeEstimateModes]; // mm/s^2
+        MachineLimits m_machine_limits[Num_TimeEstimateModes];
+        TimeFeedrates m_curr_time_feedrates[Num_TimeEstimateModes];
+        TimeFeedrates m_prev_time_feedrates[Num_TimeEstimateModes];
+        bool m_machine_limits_update_from_gcode_enabled[Num_TimeEstimateModes];
+
         std::vector<Move> m_moves;
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
         boost::nowide::ofstream m_out_moves;
+        boost::nowide::ofstream m_out_blocks_normal;
+        boost::nowide::ofstream m_out_blocks_silent;
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 
     public:
@@ -231,6 +304,9 @@ namespace Slic3r {
 
         const MachineLimits& get_machine_limits(ETimeEstimateMode mode) const { return m_machine_limits[mode]; }
         void set_machine_limits(const MachineLimits& limits, ETimeEstimateMode mode) { m_machine_limits[mode] = limits; }
+
+        bool is_machine_limits_update_from_gcode_enabled(ETimeEstimateMode mode) const { return m_machine_limits_update_from_gcode_enabled[mode]; }
+        void enable_machine_limits_update_from_gcode(ETimeEstimateMode mode, bool enable) { m_machine_limits_update_from_gcode_enabled[mode] = enable; }
 
         // Process the gcode contained in the file with the given filename
         // Return false if any error occourred
@@ -274,6 +350,8 @@ namespace Slic3r {
         bool process_M107(const GCodeLine& line);
         // Sailfish: Set tool
         bool process_M108(const GCodeLine& line);
+        // Recall stored home offsets
+        bool process_M132(const GCodeLine& line);
         // MakerWare: Set tool
         bool process_M135(const GCodeLine& line);
         // Set max printing acceleration
@@ -361,6 +439,9 @@ namespace Slic3r {
         float get_filament_unload_time(unsigned int extruder_id);
         void set_filament_unload_times(const std::vector<double>& filament_unload_times) { m_filament_unload_times = filament_unload_times; }
 
+        float get_acceleration(ETimeEstimateMode mode) const { return m_acceleration[mode]; }
+        void set_acceleration(float acceleration);
+
         // Maximum acceleration for the machine. The firmware simulator will clamp the M204 Sxxx to this maximum.
         float get_max_acceleration(ETimeEstimateMode mode) const { return m_machine_limits[mode].max_acceleration; }
         void set_max_acceleration(float acceleration);
@@ -383,26 +464,23 @@ namespace Slic3r {
         float get_axis_max_jerk(Axis axis, ETimeEstimateMode mode) const { return m_machine_limits[mode].axis_max_jerk[axis]; }
         void set_axis_max_jerk(Axis axis, float jerk);
 
-        const Position& get_start_position() const { return m_start_position; }
-        void set_start_position(const Position& position) { m_start_position = position; }
+        const AxesTuple& get_start_position() const { return m_start_position; }
+        void set_start_position(const AxesTuple& position) { m_start_position = position; }
 
-        const Position& get_end_position() const { return m_end_position; }
-        void set_end_position(const Position& position) { m_end_position = position; }
+        const AxesTuple& get_end_position() const { return m_end_position; }
+        void set_end_position(const AxesTuple& position) { m_end_position = position; }
 
         float get_axis_position(Axis axis) const { return m_end_position[axis]; }
         void set_axis_position(Axis axis, float position) { m_end_position[axis] = position; }
 
-        const Position& get_origin() const { return m_origin; }
-        void set_origin(const Position& position) { m_origin = position; }
+        const AxesTuple& get_origin() const { return m_origin; }
+        void set_origin(const AxesTuple& position) { m_origin = position; }
 
         float get_axis_origin(Axis axis) const { return m_origin[axis]; }
         void set_axis_origin(Axis axis, float position) { m_origin[axis] = position; }
 
-        float get_acceleration(ETimeEstimateMode mode) const { return m_acceleration[mode]; }
-        void set_acceleration(float acceleration);
-
-        const Position& get_repetier_store_position() const { return m_repetier_store.position; }
-        void set_repetier_store_position(const Position& position) { m_repetier_store.position = position; }
+        const AxesTuple& get_repetier_store_position() const { return m_repetier_store.position; }
+        void set_repetier_store_position(const AxesTuple& position) { m_repetier_store.position = position; }
 
         float get_repetier_store_feedrate() const { return m_repetier_store.feedrate; }
         void set_repetier_store_feedrate(float feedrate) { m_repetier_store.feedrate = feedrate; }
@@ -415,7 +493,7 @@ namespace Slic3r {
         // Checks if the given int is a valid extrusion role (contained into enum ExtrusionRole)
         bool is_valid_extrusion_role(int value) const;
 
-        void store_move(Move::EType type);
+        void store_move(Move::EType type, const std::vector<TimeBlock>& blocks = std::vector<TimeBlock>());
     };
 
 } /* namespace Slic3r */

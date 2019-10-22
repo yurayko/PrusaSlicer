@@ -22,7 +22,9 @@ static const float DEFAULT_EXTRUDE_FACTOR_OVERRIDE_PERCENTAGE = 1.0f; // 100 per
 
 static const unsigned int UNLOADED_EXTRUDER_ID = (unsigned int)-1;
 
-std::string to_string(const Slic3r::GCodeProcessor::Position& position)
+static const float PREVIOUS_FEEDRATE_THRESHOLD = 0.0001f;
+
+std::string to_string(const Slic3r::GCodeProcessor::AxesTuple& position)
 {
     std::string ret = "(";
     for (int i = Slic3r::X; i <= Slic3r::E; ++i)
@@ -38,6 +40,35 @@ std::string to_string(const Slic3r::GCodeProcessor::Position& position)
 }
 
 namespace Slic3r {
+    // Calculates the maximum allowable speed at this point when you must be able to reach target_velocity using the 
+    // acceleration within the allotted distance.
+    float max_allowable_speed(float acceleration, float target_velocity, float distance)
+    {
+        // to avoid invalid negative numbers due to numerical imprecision 
+        return ::sqrt(std::max(0.0f, sqr(target_velocity) - 2.0f * acceleration * distance));
+    }
+
+    // Calculates the distance (not time) it takes to accelerate from initial_rate to target_rate using the given acceleration:
+    float estimate_acceleration_distance(float initial_rate, float target_rate, float acceleration)
+    {
+        return (acceleration == 0.0f) ? 0.0f : (sqr(target_rate) - sqr(initial_rate)) / (2.0f * acceleration);
+    }
+
+    // This function gives you the point at which you must start braking (at the rate of -acceleration) if 
+    // you started at speed initial_rate and accelerated until this point and want to end at the final_rate after
+    // a total travel of distance. This can be used to compute the intersection point between acceleration and
+    // deceleration in the cases where the trapezoid has no plateau (i.e. never reaches maximum speed)
+    float intersection_distance(float initial_rate, float final_rate, float acceleration, float distance)
+    {
+        return (acceleration == 0.0f) ? 0.0f : (2.0f * acceleration * distance - sqr(initial_rate) + sqr(final_rate)) / (4.0f * acceleration);
+    }
+
+    // This function gives the final speed while accelerating at the given constant acceleration from the given initial speed along the given distance.
+    float speed_from_distance(float initial_feedrate, float distance, float acceleration)
+    {
+        // to avoid invalid negative numbers due to numerical imprecision 
+        return ::sqrt(std::max(0.0f, sqr(initial_feedrate) + 2.0f * acceleration * distance));
+    }
 
 bool is_whitespace(char c) { return (c == ' ') || (c == '\t'); }
 bool is_end_of_line(char c) { return (c == '\r') || (c == '\n') || (c == 0); }
@@ -328,7 +359,93 @@ std::string GCodeProcessor::Metadata::to_string() const
 
     return ret;
 }
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 
+void GCodeProcessor::TimeFeedrates::reset()
+{
+    feedrate = 0.0f;
+    safe_feedrate = 0.0f;
+    ::memset(axis_feedrate.data(), 0, sizeof(AxesTuple));
+    ::memset(abs_axis_feedrate.data(), 0, sizeof(AxesTuple));
+}
+
+void GCodeProcessor::TimeBlock::Profile::reset()
+{
+    entry = 0.0f;
+    cruise = 0.0f;
+    exit = 0.0f;
+}
+
+void GCodeProcessor::TimeBlock::Trapezoid::reset()
+{
+    profile.reset();
+    distance = 0.0f;
+    accelerate_until = 0.0f;
+    decelerate_after = 0.0f;
+}
+
+void GCodeProcessor::TimeBlock::Flags::reset()
+{
+    recalculate = false;
+    nominal_length = false;
+}
+
+void GCodeProcessor::TimeBlock::reset()
+{
+    profile.reset();
+    trapezoid.reset();
+    flags.reset();
+
+    distance = 0.0f;
+    acceleration = 0.0f;
+    max_entry_speed = 0.0f;
+    safe_feedrate = 0.0f;
+}
+
+void GCodeProcessor::TimeBlock::calculate_trapezoid()
+{
+    trapezoid.distance = distance;
+    trapezoid.profile = profile;
+
+    float accelerate_distance = std::max(0.0f, estimate_acceleration_distance(profile.entry, profile.cruise, acceleration));
+    float decelerate_distance = std::max(0.0f, estimate_acceleration_distance(profile.cruise, profile.exit, -acceleration));
+    float cruise_distance = distance - accelerate_distance - decelerate_distance;
+
+    // Not enough space to reach the nominal feedrate.
+    // This means no cruising, and we'll have to use intersection_distance() to calculate when to abort acceleration 
+    // and start braking in order to reach the exit_feedrate exactly at the end of this block.
+    if (cruise_distance < 0.0f)
+    {
+        accelerate_distance = clamp(0.0f, distance, intersection_distance(profile.entry, profile.exit, acceleration, distance));
+        cruise_distance = 0.0f;
+        trapezoid.profile.cruise = speed_from_distance(profile.entry, accelerate_distance, acceleration);
+    }
+
+    trapezoid.accelerate_until = accelerate_distance;
+    trapezoid.decelerate_after = accelerate_distance + cruise_distance;
+}
+
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+std::string GCodeProcessor::TimeBlock::to_string() const
+{
+    std::string ret;
+
+    ret += "distance:" + std::to_string(distance);
+    ret += ", acceleration:" + std::to_string(acceleration);
+    ret += ", max_entry_speed:" + std::to_string(max_entry_speed);
+    ret += ", safe_feedrate:" + std::to_string(safe_feedrate);
+    ret += ", trapezoid [";
+
+    ret += "accelerate_until:" + std::to_string(trapezoid.accelerate_until);
+    ret += ", decelerate_after:" + std::to_string(trapezoid.decelerate_after);
+    ret += ", profile_entry:" + std::to_string(trapezoid.profile.entry);
+    ret += ", profile_cruise:" + std::to_string(trapezoid.profile.cruise);
+    ret += ", profile_exit:" + std::to_string(trapezoid.profile.exit);
+
+    ret += "]";
+
+    return ret;
+}
 std::string GCodeProcessor::Move::to_string() const
 {
     std::string ret;
@@ -347,6 +464,16 @@ std::string GCodeProcessor::Move::to_string() const
 
     ret += " start:" + ::to_string(start_position);
     ret += " end:" + ::to_string(end_position);
+
+    return ret;
+}
+
+std::string GCodeProcessor::Move::to_string_as_block(ETimeEstimateMode mode) const
+{
+    std::string ret;
+
+    if ((int)mode < (int)blocks.size())
+        ret = blocks[mode].to_string();
 
     return ret;
 }
@@ -383,19 +510,22 @@ void GCodeProcessor::reset()
     m_extruders_offsets.clear();
     m_extruders_count = 1;
 
-    ::memset(m_start_position.data(), 0, sizeof(Position));
-    ::memset(m_end_position.data(), 0, sizeof(Position));
-    ::memset(m_origin.data(), 0, sizeof(Position));
-
-    m_acceleration[Normal] = 0.0f;
-    m_acceleration[Silent] = 0.0f;
+    ::memset(m_start_position.data(), 0, sizeof(AxesTuple));
+    ::memset(m_end_position.data(), 0, sizeof(AxesTuple));
+    ::memset(m_origin.data(), 0, sizeof(AxesTuple));
 
     m_extrude_factor_override_percentage = DEFAULT_EXTRUDE_FACTOR_OVERRIDE_PERCENTAGE;
 
     m_additional_time = 0.0f;
 
-    m_machine_limits[Normal] = MachineLimits();  
-    m_machine_limits[Silent] = MachineLimits(); 
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        m_acceleration[i] = 0.0f;
+        m_machine_limits[i] = MachineLimits();
+        m_curr_time_feedrates[i].reset();
+        m_prev_time_feedrates[i].reset();
+        m_machine_limits_update_from_gcode_enabled[i] = true;
+    }
 
     m_data.reset();
     // extruder_id is used to correctly calculate filament load / unload times 
@@ -434,7 +564,7 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
 
     if (m_config.gcode_flavor.value == gcfMarlin)
     {
-        for (int i = Normal; i <= Silent; ++i)
+        for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
         {
             if (i < (int)m_config.machine_max_acceleration_extruding.values.size())
             {
@@ -479,13 +609,21 @@ bool GCodeProcessor::process_file(const std::string& filename)
 {
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     boost::filesystem::path moves_path(filename);
-    moves_path.replace_extension("processor");
+    moves_path.replace_extension("processor_moves");
+    boost::filesystem::path blocks_normal_path(filename);
+    blocks_normal_path.replace_extension("processor_blocks_normal");
+    boost::filesystem::path blocks_silent_path(filename);
+    blocks_silent_path.replace_extension("processor_blocks_silent");
 
     m_out_moves.open(moves_path.string());
+    m_out_blocks_normal.open(blocks_normal_path.string());
+    m_out_blocks_silent.open(blocks_silent_path.string());
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     bool res = m_parser.parse_file(filename, [this](const GCodeLine& line) { process_gcode_line(line); });
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     m_out_moves.close();
+    m_out_blocks_normal.close();
+    m_out_blocks_silent.close();
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     return res;
 }
@@ -553,6 +691,8 @@ bool GCodeProcessor::process_gcode_line(const GCodeLine& line)
                 case 107: { return process_M107(line); }
                 // Sailfish: Set tool
                 case 108: { return process_M108(line); }
+                // Recall stored home offsets
+                case 132: { return process_M132(line); }
                 // MakerWare: Set tool
                 case 135: { return process_M135(line); }
                 // Set max printing acceleration
@@ -621,7 +761,7 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
     };
 
     // updates axes positions from line
-    Position new_pos;
+    AxesTuple new_pos;
     for (unsigned char a = X; a <= E; ++a)
     {
         new_pos[a] = axis_absolute_position((Axis)a, line);
@@ -632,11 +772,17 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
         set_feedrate(line.value('F') * MMMIN_TO_MMSEC);
 
     // calculates movement deltas
-    Position delta_pos;
+    float max_abs_delta = 0.0f;
+    AxesTuple delta_pos;
     for (unsigned char a = X; a <= E; ++a)
     {
         delta_pos[a] = new_pos[a] - get_axis_position((Axis)a);
+        max_abs_delta = std::max(max_abs_delta, std::abs(delta_pos[a]));
     }
+
+    // no displacement, return
+    if (max_abs_delta == 0.0f)
+        return true;
 
     // Detects move type
     Move::EType type = Move::Noop;
@@ -658,6 +804,163 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
     else if ((delta_pos[X] != 0.0f) || (delta_pos[Y] != 0.0f) || (delta_pos[Z] != 0.0f))
         type = Move::Travel;
 
+    if (type == Move::Noop)
+        return true;
+
+    // calculates data for time estimation
+    bool is_extruder_only_move = false;
+    float sq_length_xyz = sqr(delta_pos[X]) + sqr(delta_pos[Y]) + sqr(delta_pos[Z]);
+    float distance = 0.0f;
+    if (sq_length_xyz > 0.0f)
+        distance = ::sqrt(sq_length_xyz);
+    else
+    {
+        distance = std::abs(delta_pos[E]);
+        is_extruder_only_move = true;
+    }
+
+    float invDistance = 1.0f / distance;
+
+    std::vector<TimeBlock> blocks(Num_TimeEstimateModes);
+
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        ETimeEstimateMode m = (ETimeEstimateMode)i;
+        TimeFeedrates& curr = m_curr_time_feedrates[i];
+        TimeFeedrates& prev = m_prev_time_feedrates[i];
+        TimeBlock& block = blocks[i];
+
+        block.reset();
+        block.distance = distance;
+
+        // calculates time-block feedrate
+        curr.feedrate = std::max(get_feedrate(), (type == Move::Travel) ? get_minimum_travel_feedrate(m) : get_minimum_feedrate(m));
+
+        float min_feedrate_factor = 1.0f;
+        for (unsigned char j = X; j <= E; ++j)
+        {
+            curr.axis_feedrate[j] = curr.feedrate * delta_pos[j] * invDistance;
+            if (j == E)
+                curr.axis_feedrate[j] *= get_extrude_factor_override_percentage();
+
+            curr.abs_axis_feedrate[j] = std::abs(curr.axis_feedrate[j]);
+            if (curr.abs_axis_feedrate[j] > 0.0f)
+                min_feedrate_factor = std::min(min_feedrate_factor, get_axis_max_feedrate((Axis)j, m) / curr.abs_axis_feedrate[j]);
+        }
+
+        block.profile.cruise = min_feedrate_factor * curr.feedrate;
+
+        if (min_feedrate_factor < 1.0f)
+        {
+            for (unsigned char j = X; j <= E; ++j)
+            {
+                curr.axis_feedrate[j] *= min_feedrate_factor;
+                curr.abs_axis_feedrate[j] *= min_feedrate_factor;
+            }
+        }
+
+        // calculates block acceleration
+        float acceleration = is_extruder_only_move ? get_retract_acceleration(m) : get_acceleration(m);
+
+        for (unsigned char j = X; j <= E; ++j)
+        {
+            float axis_max_acceleration = get_axis_max_acceleration((Axis)j, m);
+            if (acceleration * std::abs(delta_pos[j]) * invDistance > axis_max_acceleration)
+                acceleration = axis_max_acceleration;
+        }
+
+        block.acceleration = acceleration;
+
+        // calculates block exit feedrate
+        curr.safe_feedrate = block.profile.cruise;
+
+        for (unsigned char j = X; j <= E; ++j)
+        {
+            float axis_max_jerk = get_axis_max_jerk((Axis)j, m);
+            if (curr.abs_axis_feedrate[j] > axis_max_jerk)
+                curr.safe_feedrate = std::min(curr.safe_feedrate, axis_max_jerk);
+        }
+
+        block.profile.exit = curr.safe_feedrate;
+
+        // calculates block entry feedrate
+        float vmax_junction = curr.safe_feedrate;
+        // ET_FIXME: we should check for unprocessed blocks instead of moves count see GCodeTimeEstimator 
+        if (!m_moves.empty() && (prev.feedrate > PREVIOUS_FEEDRATE_THRESHOLD))
+        {
+            bool prev_speed_larger = prev.feedrate > block.profile.cruise;
+            float smaller_speed_factor = prev_speed_larger ? (block.profile.cruise / prev.feedrate) : (prev.feedrate / block.profile.cruise);
+            // Pick the smaller of the nominal speeds. Higher speed shall not be achieved at the junction during coasting.
+            vmax_junction = prev_speed_larger ? block.profile.cruise : prev.feedrate;
+
+            float v_factor = 1.0f;
+            bool limited = false;
+
+            for (unsigned char j = X; j <= E; ++j)
+            {
+                // Limit an axis. We have to differentiate coasting from the reversal of an axis movement, or a full stop.
+                float v_exit = prev.axis_feedrate[j];
+                float v_entry = curr.axis_feedrate[j];
+
+                if (prev_speed_larger)
+                    v_exit *= smaller_speed_factor;
+
+                if (limited)
+                {
+                    v_exit *= v_factor;
+                    v_entry *= v_factor;
+                }
+
+                // Calculate the jerk depending on whether the axis is coasting in the same direction or reversing a direction.
+                float jerk =
+                    (v_exit > v_entry) ?
+                    (((v_entry > 0.0f) || (v_exit < 0.0f)) ?
+                    // coasting
+                    (v_exit - v_entry) :
+                    // axis reversal
+                    std::max(v_exit, -v_entry)) :
+                    // v_exit <= v_entry
+                    (((v_entry < 0.0f) || (v_exit > 0.0f)) ?
+                    // coasting
+                    (v_entry - v_exit) :
+                    // axis reversal
+                    std::max(-v_exit, v_entry));
+
+                float axis_max_jerk = get_axis_max_jerk((Axis)j, m);
+                if (jerk > axis_max_jerk)
+                {
+                    v_factor *= axis_max_jerk / jerk;
+                    limited = true;
+                }
+            }
+
+            if (limited)
+                vmax_junction *= v_factor;
+
+            // Now the transition velocity is known, which maximizes the shared exit / entry velocity while
+            // respecting the jerk factors, it may be possible, that applying separate safe exit / entry velocities will achieve faster prints.
+            float vmax_junction_threshold = vmax_junction * 0.99f;
+
+            // Not coasting. The machine will stop and start the movements anyway, better to start the segment from start.
+            if ((prev.safe_feedrate > vmax_junction_threshold) && (curr.safe_feedrate > vmax_junction_threshold))
+                vmax_junction = curr.safe_feedrate;
+        }
+
+        float v_allowable = max_allowable_speed(-acceleration, curr.safe_feedrate, distance);
+        block.profile.entry = std::min(vmax_junction, v_allowable);
+
+        block.max_entry_speed = vmax_junction;
+        block.flags.nominal_length = (block.profile.cruise <= v_allowable);
+        block.flags.recalculate = true;
+        block.safe_feedrate = curr.safe_feedrate;
+
+        // calculates block trapezoid
+        block.calculate_trapezoid();
+
+        // updates previous
+        prev = curr;
+    }
+
     ExtrusionRole role = get_extrusion_role();
     if ((type == Move::Extrude) && ((get_width() == 0.0f) || (get_height() == 0.0f) || !is_valid_extrusion_role(role)))
         type = Move::Travel;
@@ -666,8 +969,7 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
     set_end_position(new_pos);
 
     // stores the move
-    if (type != Move::Noop)
-        store_move(type);
+    store_move(type, blocks);
 
     return true;
 }
@@ -832,6 +1134,27 @@ bool GCodeProcessor::process_M108(const GCodeLine& line)
     return true;
 }
 
+bool GCodeProcessor::process_M132(const GCodeLine& line)
+{
+    // This command is used by Makerbot to load the current home position from EEPROM
+    // see: https://github.com/makerbot/s3g/blob/master/doc/GCodeProtocol.md
+    // Using this command to reset the axis origin to zero helps in fixing: https://github.com/prusa3d/PrusaSlicer/issues/3082
+
+    if (line.has(X))
+        set_axis_origin(X, 0.0f);
+
+    if (line.has(Y))
+        set_axis_origin(Y, 0.0f);
+
+    if (line.has(Z))
+        set_axis_origin(Z, 0.0f);
+
+    if (line.has(E))
+        set_axis_origin(E, 0.0f);
+
+    return true;
+}
+
 bool GCodeProcessor::process_M135(const GCodeLine& line)
 {
     // M135 is used by MakerWare to change active tool.
@@ -979,7 +1302,7 @@ bool GCodeProcessor::process_M402(const GCodeLine& line)
 
         bool has_xyz = !(line.has(X) || line.has(Y) || line.has(Z));
 
-        const Position& store_position = get_repetier_store_position();
+        const AxesTuple& store_position = get_repetier_store_position();
         float store_feedrate = get_repetier_store_feedrate();
 
         for (unsigned char i = X; i <= Z; ++i)
@@ -1190,68 +1513,9 @@ float GCodeProcessor::get_filament_unload_time(unsigned int extruder_id)
         (float)m_filament_unload_times[extruder_id];
 }
 
-void GCodeProcessor::set_max_acceleration(float acceleration)
-{
-    for (int i = Normal; i <= Silent; ++i)
-    {
-        m_machine_limits[i].max_acceleration = acceleration;
-
-        if (acceleration > 0.0f)
-            m_acceleration[i] = acceleration;
-    }
-}
-
-void GCodeProcessor::set_retract_acceleration(float acceleration)
-{
-    for (int i = Normal; i <= Silent; ++i)
-    {
-        m_machine_limits[i].retract_acceleration = acceleration;
-    }
-}
-
-void GCodeProcessor::set_minimum_feedrate(float feedrate)
-{
-    for (int i = Normal; i <= Silent; ++i)
-    {
-        m_machine_limits[i].minimum_feedrate = feedrate;
-    }
-}
-
-void GCodeProcessor::set_minimum_travel_feedrate(float feedrate)
-{
-    for (int i = Normal; i <= Silent; ++i)
-    {
-        m_machine_limits[i].minimum_travel_feedrate = feedrate;
-    }
-}
-
-void GCodeProcessor::set_axis_max_feedrate(Axis axis, float feedrate)
-{
-    for (int i = Normal; i <= Silent; ++i)
-    {
-        m_machine_limits[i].axis_max_feedrate[axis] = feedrate;
-    }
-}
-
-void GCodeProcessor::set_axis_max_acceleration(Axis axis, float acceleration)
-{
-    for (int i = Normal; i <= Silent; ++i)
-    {
-        m_machine_limits[i].axis_max_acceleration[axis] = acceleration;
-    }
-}
-
-void GCodeProcessor::set_axis_max_jerk(Axis axis, float jerk)
-{
-    for (int i = Normal; i <= Silent; ++i)
-    {
-        m_machine_limits[i].axis_max_jerk[axis] = jerk;
-    }
-}
-
 void GCodeProcessor::set_acceleration(float acceleration)
 {
-    for (int i = Normal; i <= Silent; ++i)
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
         m_acceleration[i] = (m_machine_limits[i].max_acceleration == 0.0f) ?
             acceleration :
@@ -1260,32 +1524,103 @@ void GCodeProcessor::set_acceleration(float acceleration)
     }
 }
 
+void GCodeProcessor::set_max_acceleration(float acceleration)
+{
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        if (m_machine_limits_update_from_gcode_enabled[i])
+            m_machine_limits[i].max_acceleration = acceleration;
+
+        if (acceleration > 0.0f)
+            m_acceleration[i] = acceleration;
+    }
+}
+
+void GCodeProcessor::set_retract_acceleration(float acceleration)
+{
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        m_machine_limits[i].retract_acceleration = acceleration;
+    }
+}
+
+void GCodeProcessor::set_minimum_feedrate(float feedrate)
+{
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        if (m_machine_limits_update_from_gcode_enabled[i])
+            m_machine_limits[i].minimum_feedrate = feedrate;
+    }
+}
+
+void GCodeProcessor::set_minimum_travel_feedrate(float feedrate)
+{
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        if (m_machine_limits_update_from_gcode_enabled[i])
+            m_machine_limits[i].minimum_travel_feedrate = feedrate;
+    }
+}
+
+void GCodeProcessor::set_axis_max_feedrate(Axis axis, float feedrate)
+{
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        if (m_machine_limits_update_from_gcode_enabled[i])
+            m_machine_limits[i].axis_max_feedrate[axis] = feedrate;
+    }
+}
+
+void GCodeProcessor::set_axis_max_acceleration(Axis axis, float acceleration)
+{
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        if (m_machine_limits_update_from_gcode_enabled[i])
+            m_machine_limits[i].axis_max_acceleration[axis] = acceleration;
+    }
+}
+
+void GCodeProcessor::set_axis_max_jerk(Axis axis, float jerk)
+{
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        if (m_machine_limits_update_from_gcode_enabled[i])
+            m_machine_limits[i].axis_max_jerk[axis] = jerk;
+    }
+}
+
 bool GCodeProcessor::is_valid_extrusion_role(int value) const
 {
     return ((int)erNone <= value) && (value <= (int)erMixed);
 }
 
-void GCodeProcessor::store_move(Move::EType type)
+void GCodeProcessor::store_move(Move::EType type, const std::vector<TimeBlock>& blocks)
 {
     unsigned int extruder_id = get_extruder_id();
     extruder_id = (extruder_id == UNLOADED_EXTRUDER_ID) ? 0 : extruder_id;
     Metadata data(get_extrusion_role(), get_mm3_per_mm(), get_width(), get_height(), get_feedrate(), get_fan_speed(), extruder_id, get_color_id());
 
-    // FIXME: Could this calculation be moved into process_G1() ?
+    // ET_FIXME: Could this calculation be moved into process_G1() ?
     ExtrudersOffsetsMap::iterator extr_it = m_extruders_offsets.find(extruder_id);
     Vec2d extruder_offset = (extr_it != m_extruders_offsets.end()) ? extr_it->second : Vec2d::Zero();
-    Position start_position = get_start_position();
+    AxesTuple start_position = get_start_position();
     start_position[0] += (float)extruder_offset(0);
     start_position[1] += (float)extruder_offset(1);
-    Position end_position = get_end_position();
+    AxesTuple end_position = get_end_position();
     end_position[0] += (float)extruder_offset(0);
     end_position[1] += (float)extruder_offset(1);
 
-    m_moves.emplace_back(type, data, start_position, end_position);
+    m_moves.emplace_back(type, data, start_position, end_position, blocks);
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     if (m_out_moves.good())
         m_out_moves << m_moves.back().to_string() << std::endl;
+
+    if (m_out_blocks_normal.good())
+        m_out_blocks_normal << m_moves.back().to_string_as_block(Normal) << std::endl;
+
+    if (m_out_blocks_silent.good())
+        m_out_blocks_silent << m_moves.back().to_string_as_block(Silent) << std::endl;
 
 //    std::cout << "Moves size: " << m_moves.size() << " (" << m_moves.size() * sizeof(Move) << " = " << (double)(m_moves.size() * sizeof(Move)) / (1024.0 * 1024.0) << "MB)" << std::endl;
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT

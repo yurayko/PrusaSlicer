@@ -182,6 +182,48 @@ namespace Slic3r {
         set_default();
     }
 
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+    void GCodeTimeEstimator::start_debug_output(const std::string& filename)
+    {
+        boost::filesystem::path blocks_path(filename);
+        std::string extension = "estimator_blocks";
+        if (m_mode == Normal)
+            extension += "_normal";
+        else
+            extension += "_silent";
+        blocks_path.replace_extension(extension.c_str());
+        m_out_blocks.open(blocks_path.string());
+    }
+
+    void GCodeTimeEstimator::stop_debug_output()
+    {
+        if (m_out_blocks.good())
+            m_out_blocks.close();
+    }
+
+    void GCodeTimeEstimator::debug_output_block(const Block& block)
+    {
+        if (m_out_blocks.good())
+        {
+            m_out_blocks << "distance:" << std::to_string(block.move_length());
+            m_out_blocks << ", acceleration:" << std::to_string(block.acceleration);
+            m_out_blocks << ", max_entry_speed:" + std::to_string(block.max_entry_speed);
+            m_out_blocks << ", safe_feedrate:" + std::to_string(block.safe_feedrate);
+            m_out_blocks << ", trapezoid [";
+
+            m_out_blocks << "accelerate_until:" + std::to_string(block.trapezoid.accelerate_until);
+            m_out_blocks << ", decelerate_after:" + std::to_string(block.trapezoid.decelerate_after);
+            m_out_blocks << ", profile_entry:" + std::to_string(block.trapezoid.feedrate.entry);
+            m_out_blocks << ", profile_cruise:" + std::to_string(block.trapezoid.feedrate.cruise);
+            m_out_blocks << ", profile_exit:" + std::to_string(block.trapezoid.feedrate.exit);
+
+            m_out_blocks << "]" << std::endl;
+        }
+    }
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
     void GCodeTimeEstimator::add_gcode_line(const std::string& gcode_line)
     {
         PROFILE_FUNC();
@@ -1181,6 +1223,11 @@ namespace Slic3r {
         // adds block to blocks list
         m_blocks.emplace_back(block);
         m_g1_line_ids.emplace_back(G1LineIdToBlockIdMap::value_type(get_g1_line_id(), (unsigned int)m_blocks.size() - 1));
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+        debug_output_block(m_blocks.back());
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     }
 
     void GCodeTimeEstimator::_processG4(const GCodeReader::GCodeLine& line)

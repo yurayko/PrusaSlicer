@@ -679,7 +679,10 @@ void GCode::do_export(Print *print, const char *path, GCodePreviewData *preview_
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     if (m_enable_analyzer)
-        m_analyzer.start_output(path_tmp);
+        m_analyzer.start_debug_output(path_tmp);
+
+    m_normal_time_estimator.start_debug_output(path_tmp);
+    m_silent_time_estimator.start_debug_output(path_tmp);
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
@@ -718,6 +721,7 @@ void GCode::do_export(Print *print, const char *path, GCodePreviewData *preview_
 #if ENABLE_GCODE_PROCESSOR
     m_processor.reset();
     m_processor.apply_config(print->config());
+    m_processor.enable_machine_limits_update_from_gcode(GCodeProcessor::Silent, false);
     m_processor.process_file(path_tmp);
 #endif // ENABLE_GCODE_PROCESSOR
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -744,7 +748,9 @@ void GCode::do_export(Print *print, const char *path, GCodePreviewData *preview_
         m_analyzer.reset();
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
-        m_analyzer.stop_output();
+        m_analyzer.stop_debug_output();
+        m_normal_time_estimator.stop_debug_output();
+        m_silent_time_estimator.stop_debug_output();
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     }
