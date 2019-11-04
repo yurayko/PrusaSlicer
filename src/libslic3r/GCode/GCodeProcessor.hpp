@@ -106,6 +106,8 @@ namespace Slic3r {
             float axis_max_acceleration[NUM_AXES - 1]; // mm/s^2
             float axis_max_jerk[NUM_AXES - 1];         // mm/s
 
+            bool update_from_gcode_enabled;
+
             MachineLimits() { reset(); }
             void reset();
         };
@@ -199,6 +201,24 @@ namespace Slic3r {
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
         };
 
+        struct TimeEstimator
+        {
+        private:
+            float m_acceleration; // mm/s^2
+
+        public:
+            MachineLimits machine_limits;
+            TimeFeedrates curr_feedrates;
+            TimeFeedrates prev_feedrates;
+
+            TimeEstimator() { reset(); }
+            void reset();
+
+            float get_acceleration() const { return m_acceleration; }
+            void set_acceleration(float acceleration);
+            void set_max_acceleration(float acceleration);
+        };
+
         struct Move
         {
             enum EType : unsigned char
@@ -272,11 +292,7 @@ namespace Slic3r {
         RepetierStore m_repetier_store;
         ColorTimes m_color_times;
 
-        float m_acceleration[Num_TimeEstimateModes]; // mm/s^2
-        MachineLimits m_machine_limits[Num_TimeEstimateModes];
-        TimeFeedrates m_curr_time_feedrates[Num_TimeEstimateModes];
-        TimeFeedrates m_prev_time_feedrates[Num_TimeEstimateModes];
-        bool m_machine_limits_update_from_gcode_enabled[Num_TimeEstimateModes];
+        TimeEstimator m_time_estimators[Num_TimeEstimateModes];
 
         std::vector<Move> m_moves;
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
@@ -302,11 +318,11 @@ namespace Slic3r {
         void apply_config(const PrintConfig& config);
 //        void apply_config(const DynamicPrintConfig& config);
 
-        const MachineLimits& get_machine_limits(ETimeEstimateMode mode) const { return m_machine_limits[mode]; }
-        void set_machine_limits(const MachineLimits& limits, ETimeEstimateMode mode) { m_machine_limits[mode] = limits; }
+        const MachineLimits& get_machine_limits(ETimeEstimateMode mode) const { return m_time_estimators[mode].machine_limits; }
+        void set_machine_limits(ETimeEstimateMode mode, const MachineLimits& limits) { m_time_estimators[mode].machine_limits = limits; }
 
-        bool is_machine_limits_update_from_gcode_enabled(ETimeEstimateMode mode) const { return m_machine_limits_update_from_gcode_enabled[mode]; }
-        void enable_machine_limits_update_from_gcode(ETimeEstimateMode mode, bool enable) { m_machine_limits_update_from_gcode_enabled[mode] = enable; }
+        bool is_machine_limits_update_from_gcode_enabled(ETimeEstimateMode mode) const { return m_time_estimators[mode].machine_limits.update_from_gcode_enabled; }
+        void enable_machine_limits_update_from_gcode(ETimeEstimateMode mode, bool enable) { m_time_estimators[mode].machine_limits.update_from_gcode_enabled = enable; }
 
         // Process the gcode contained in the file with the given filename
         // Return false if any error occourred
@@ -394,6 +410,14 @@ namespace Slic3r {
         // Processes color change tag
         bool process_color_change_tag();
 
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        // Simulates firmware st_synchronize() call
+        void simulate_st_synchronize();
+
+        // Calculates the time estimate
+        void calculate_time();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
         EUnits get_units() const { return m_units; }
         void set_units(EUnits units) { m_units = units; }
 
@@ -439,29 +463,29 @@ namespace Slic3r {
         float get_filament_unload_time(unsigned int extruder_id);
         void set_filament_unload_times(const std::vector<double>& filament_unload_times) { m_filament_unload_times = filament_unload_times; }
 
-        float get_acceleration(ETimeEstimateMode mode) const { return m_acceleration[mode]; }
+        float get_acceleration(ETimeEstimateMode mode) const { return m_time_estimators[mode].get_acceleration(); }
         void set_acceleration(float acceleration);
 
         // Maximum acceleration for the machine. The firmware simulator will clamp the M204 Sxxx to this maximum.
-        float get_max_acceleration(ETimeEstimateMode mode) const { return m_machine_limits[mode].max_acceleration; }
+        float get_max_acceleration(ETimeEstimateMode mode) const { return m_time_estimators[mode].machine_limits.max_acceleration; }
         void set_max_acceleration(float acceleration);
 
-        float get_retract_acceleration(ETimeEstimateMode mode) const { return m_machine_limits[mode].retract_acceleration; }
+        float get_retract_acceleration(ETimeEstimateMode mode) const { return m_time_estimators[mode].machine_limits.retract_acceleration; }
         void set_retract_acceleration(float acceleration);
 
-        float get_minimum_feedrate(ETimeEstimateMode mode) const { return m_machine_limits[mode].minimum_feedrate; }
+        float get_minimum_feedrate(ETimeEstimateMode mode) const { return m_time_estimators[mode].machine_limits.minimum_feedrate; }
         void set_minimum_feedrate(float feedrate);
 
-        float get_minimum_travel_feedrate(ETimeEstimateMode mode) const { return m_machine_limits[mode].minimum_travel_feedrate; }
+        float get_minimum_travel_feedrate(ETimeEstimateMode mode) const { return m_time_estimators[mode].machine_limits.minimum_travel_feedrate; }
         void set_minimum_travel_feedrate(float feedrate);
 
-        float get_axis_max_feedrate(Axis axis, ETimeEstimateMode mode) const { return m_machine_limits[mode].axis_max_feedrate[axis]; }
+        float get_axis_max_feedrate(ETimeEstimateMode mode, Axis axis) const { return m_time_estimators[mode].machine_limits.axis_max_feedrate[axis]; }
         void set_axis_max_feedrate(Axis axis, float feedrate);
 
-        float get_axis_max_acceleration(Axis axis, ETimeEstimateMode mode) const { return m_machine_limits[mode].axis_max_acceleration[axis]; }
+        float get_axis_max_acceleration(ETimeEstimateMode mode, Axis axis) const { return m_time_estimators[mode].machine_limits.axis_max_acceleration[axis]; }
         void set_axis_max_acceleration(Axis axis, float acceleration);
 
-        float get_axis_max_jerk(Axis axis, ETimeEstimateMode mode) const { return m_machine_limits[mode].axis_max_jerk[axis]; }
+        float get_axis_max_jerk(ETimeEstimateMode mode, Axis axis) const { return m_time_estimators[mode].machine_limits.axis_max_jerk[axis]; }
         void set_axis_max_jerk(Axis axis, float jerk);
 
         const AxesTuple& get_start_position() const { return m_start_position; }

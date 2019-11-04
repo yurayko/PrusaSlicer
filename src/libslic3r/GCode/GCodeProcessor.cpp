@@ -311,6 +311,8 @@ void GCodeProcessor::MachineLimits::reset()
     ::memcpy((void*)axis_max_feedrate, (const void*)DEFAULT_AXIS_MAX_FEEDRATE, (NUM_AXES - 1) * sizeof(float));
     ::memcpy((void*)axis_max_acceleration, (const void*)DEFAULT_AXIS_MAX_ACCELERATION, (NUM_AXES - 1) * sizeof(float));
     ::memcpy((void*)axis_max_jerk, (const void*)DEFAULT_AXIS_MAX_JERK, (NUM_AXES - 1) * sizeof(float));
+
+    update_from_gcode_enabled = true;
 }
 
 void GCodeProcessor::Metadata::reset()
@@ -446,6 +448,34 @@ std::string GCodeProcessor::TimeBlock::to_string() const
 
     return ret;
 }
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+
+void GCodeProcessor::TimeEstimator::reset()
+{
+    m_acceleration = 0.0f;
+    machine_limits = MachineLimits();
+    curr_feedrates.reset();
+    prev_feedrates.reset();
+}
+
+void GCodeProcessor::TimeEstimator::set_acceleration(float acceleration)
+{
+    m_acceleration = (machine_limits.max_acceleration == 0.0f) ?
+        acceleration :
+        // Clamp the acceleration with the maximum.
+        std::min(machine_limits.max_acceleration, acceleration);
+}
+
+void GCodeProcessor::TimeEstimator::set_max_acceleration(float acceleration)
+{
+    if (machine_limits.update_from_gcode_enabled)
+        machine_limits.max_acceleration = acceleration;
+
+    if (acceleration > 0.0f)
+        m_acceleration = acceleration;
+}
+
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 std::string GCodeProcessor::Move::to_string() const
 {
     std::string ret;
@@ -520,11 +550,7 @@ void GCodeProcessor::reset()
 
     for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
-        m_acceleration[i] = 0.0f;
-        m_machine_limits[i] = MachineLimits();
-        m_curr_time_feedrates[i].reset();
-        m_prev_time_feedrates[i].reset();
-        m_machine_limits_update_from_gcode_enabled[i] = true;
+        m_time_estimators[i].reset();
     }
 
     m_data.reset();
@@ -566,26 +592,29 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
     {
         for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
         {
-            if (i < (int)m_config.machine_max_acceleration_extruding.values.size())
-            {
-                MachineLimits& limits = m_machine_limits[i];
-                limits.max_acceleration = (float)m_config.machine_max_acceleration_extruding.values[i];
-                limits.retract_acceleration = (float)m_config.machine_max_acceleration_retracting.values[i];
-                limits.minimum_feedrate = (float)m_config.machine_min_extruding_rate.values[i];
-                limits.minimum_travel_feedrate = (float)m_config.machine_min_travel_rate.values[i];
-                limits.axis_max_acceleration[X] = (float)m_config.machine_max_acceleration_x.values[i];
-                limits.axis_max_acceleration[Y] = (float)m_config.machine_max_acceleration_y.values[i];
-                limits.axis_max_acceleration[Z] = (float)m_config.machine_max_acceleration_z.values[i];
-                limits.axis_max_acceleration[E] = (float)m_config.machine_max_acceleration_e.values[i];
-                limits.axis_max_feedrate[X] = (float)m_config.machine_max_feedrate_x.values[i];
-                limits.axis_max_feedrate[Y] = (float)m_config.machine_max_feedrate_y.values[i];
-                limits.axis_max_feedrate[Z] = (float)m_config.machine_max_feedrate_z.values[i];
-                limits.axis_max_feedrate[E] = (float)m_config.machine_max_feedrate_e.values[i];
-                limits.axis_max_jerk[X] = (float)m_config.machine_max_jerk_x.values[i];
-                limits.axis_max_jerk[Y] = (float)m_config.machine_max_jerk_y.values[i];
-                limits.axis_max_jerk[Z] = (float)m_config.machine_max_jerk_z.values[i];
-                limits.axis_max_jerk[E] = (float)m_config.machine_max_jerk_e.values[i];
-            }
+            MachineLimits& limits = m_time_estimators[i].machine_limits;
+
+            /* "Silent mode" values can be just a copy of "normal mode" values
+            * (when they aren't input for a printer preset).
+            * Thus, use back value from values, instead of second one, which could be absent
+            */
+            int id = (i < (int)m_config.machine_max_acceleration_extruding.values.size()) ? i : (int)m_config.machine_max_acceleration_extruding.values.size() - 1;
+            limits.max_acceleration = (float)m_config.machine_max_acceleration_extruding.values[id];
+            limits.retract_acceleration = (float)m_config.machine_max_acceleration_retracting.values[id];
+            limits.minimum_feedrate = (float)m_config.machine_min_extruding_rate.values[id];
+            limits.minimum_travel_feedrate = (float)m_config.machine_min_travel_rate.values[id];
+            limits.axis_max_acceleration[X] = (float)m_config.machine_max_acceleration_x.values[id];
+            limits.axis_max_acceleration[Y] = (float)m_config.machine_max_acceleration_y.values[id];
+            limits.axis_max_acceleration[Z] = (float)m_config.machine_max_acceleration_z.values[id];
+            limits.axis_max_acceleration[E] = (float)m_config.machine_max_acceleration_e.values[id];
+            limits.axis_max_feedrate[X] = (float)m_config.machine_max_feedrate_x.values[id];
+            limits.axis_max_feedrate[Y] = (float)m_config.machine_max_feedrate_y.values[id];
+            limits.axis_max_feedrate[Z] = (float)m_config.machine_max_feedrate_z.values[id];
+            limits.axis_max_feedrate[E] = (float)m_config.machine_max_feedrate_e.values[id];
+            limits.axis_max_jerk[X] = (float)m_config.machine_max_jerk_x.values[id];
+            limits.axis_max_jerk[Y] = (float)m_config.machine_max_jerk_y.values[id];
+            limits.axis_max_jerk[Z] = (float)m_config.machine_max_jerk_z.values[id];
+            limits.axis_max_jerk[E] = (float)m_config.machine_max_jerk_e.values[id];
         }
     }
 
@@ -819,15 +848,16 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
         is_extruder_only_move = true;
     }
 
-    float invDistance = 1.0f / distance;
+    float inv_distance = 1.0f / distance;
 
     std::vector<TimeBlock> blocks(Num_TimeEstimateModes);
 
     for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
         ETimeEstimateMode m = (ETimeEstimateMode)i;
-        TimeFeedrates& curr = m_curr_time_feedrates[i];
-        TimeFeedrates& prev = m_prev_time_feedrates[i];
+        TimeEstimator& time_estimator = m_time_estimators[i];
+        TimeFeedrates& curr = time_estimator.curr_feedrates;
+        TimeFeedrates& prev = time_estimator.prev_feedrates;
         TimeBlock& block = blocks[i];
 
         block.reset();
@@ -839,13 +869,13 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
         float min_feedrate_factor = 1.0f;
         for (unsigned char j = X; j <= E; ++j)
         {
-            curr.axis_feedrate[j] = curr.feedrate * delta_pos[j] * invDistance;
+            curr.axis_feedrate[j] = curr.feedrate * delta_pos[j] * inv_distance;
             if (j == E)
                 curr.axis_feedrate[j] *= get_extrude_factor_override_percentage();
 
             curr.abs_axis_feedrate[j] = std::abs(curr.axis_feedrate[j]);
             if (curr.abs_axis_feedrate[j] > 0.0f)
-                min_feedrate_factor = std::min(min_feedrate_factor, get_axis_max_feedrate((Axis)j, m) / curr.abs_axis_feedrate[j]);
+                min_feedrate_factor = std::min(min_feedrate_factor, get_axis_max_feedrate(m, (Axis)j) / curr.abs_axis_feedrate[j]);
         }
 
         block.profile.cruise = min_feedrate_factor * curr.feedrate;
@@ -864,8 +894,8 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
 
         for (unsigned char j = X; j <= E; ++j)
         {
-            float axis_max_acceleration = get_axis_max_acceleration((Axis)j, m);
-            if (acceleration * std::abs(delta_pos[j]) * invDistance > axis_max_acceleration)
+            float axis_max_acceleration = get_axis_max_acceleration(m, (Axis)j);
+            if (acceleration * std::abs(delta_pos[j]) * inv_distance > axis_max_acceleration)
                 acceleration = axis_max_acceleration;
         }
 
@@ -876,7 +906,7 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
 
         for (unsigned char j = X; j <= E; ++j)
         {
-            float axis_max_jerk = get_axis_max_jerk((Axis)j, m);
+            float axis_max_jerk = get_axis_max_jerk(m, (Axis)j);
             if (curr.abs_axis_feedrate[j] > axis_max_jerk)
                 curr.safe_feedrate = std::min(curr.safe_feedrate, axis_max_jerk);
         }
@@ -926,7 +956,7 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
                     // axis reversal
                     std::max(-v_exit, v_entry));
 
-                float axis_max_jerk = get_axis_max_jerk((Axis)j, m);
+                float axis_max_jerk = get_axis_max_jerk(m, (Axis)j);
                 if (jerk > axis_max_jerk)
                 {
                     v_factor *= axis_max_jerk / jerk;
@@ -988,10 +1018,12 @@ bool GCodeProcessor::process_G4(const GCodeLine& line)
         (flavor == gcfRepRap))
     {
         if (line.has('S'))
-            set_additional_time(get_additional_time() + line.value('P'));
+            set_additional_time(get_additional_time() + line.value('S'));
     }
 
-//    _simulate_st_synchronize();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    simulate_st_synchronize();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     return true;
 }
@@ -1067,7 +1099,9 @@ bool GCodeProcessor::process_G92(const GCodeLine& line)
         }
         else if (a == E)
         {
-//            _simulate_st_synchronize();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            simulate_st_synchronize();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         }
     }
 
@@ -1079,7 +1113,9 @@ bool GCodeProcessor::process_G92(const GCodeLine& line)
 
 bool GCodeProcessor::process_M1(const GCodeLine& line)
 {
-//    _simulate_st_synchronize();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    simulate_st_synchronize();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     return true;
 }
 
@@ -1346,7 +1382,9 @@ bool GCodeProcessor::process_M702(const GCodeLine& line)
         // The MK3 unit shall unload and park the active filament into the MMU2 unit.
         set_additional_time(get_additional_time() + get_filament_unload_time(get_extruder_id()));
         set_extruder_id(UNLOADED_EXTRUDER_ID);
-//        _simulate_st_synchronize();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        simulate_st_synchronize();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     }
 
     return true;
@@ -1374,7 +1412,9 @@ bool GCodeProcessor::process_T(const GCodeLine& line)
                 set_additional_time(get_additional_time() + get_filament_unload_time(old_id));
                 set_extruder_id(new_id);
                 set_additional_time(get_additional_time() + get_filament_load_time(new_id));
-//                _simulate_st_synchronize();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+                simulate_st_synchronize();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
             }
 
             // stores tool change move
@@ -1483,7 +1523,9 @@ bool GCodeProcessor::process_color_change_tag()
 {
     set_color_id(get_color_id() + 1);
     enable_color_times(true);
-//    _calculate_time();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    calculate_time();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     if (get_color_times_cache() > 0.0f)
     {
         store_current_color_times_cache();
@@ -1492,6 +1534,17 @@ bool GCodeProcessor::process_color_change_tag()
 
     return true;
 }
+
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+void GCodeProcessor::simulate_st_synchronize()
+{
+    calculate_time();
+}
+
+void GCodeProcessor::calculate_time()
+{
+}
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 float GCodeProcessor::get_filament_load_time(unsigned int extruder_id)
 {
@@ -1517,10 +1570,7 @@ void GCodeProcessor::set_acceleration(float acceleration)
 {
     for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
-        m_acceleration[i] = (m_machine_limits[i].max_acceleration == 0.0f) ?
-            acceleration :
-            // Clamp the acceleration with the maximum.
-            std::min(m_machine_limits[i].max_acceleration, acceleration);
+        m_time_estimators[i].set_acceleration(acceleration);
     }
 }
 
@@ -1528,11 +1578,7 @@ void GCodeProcessor::set_max_acceleration(float acceleration)
 {
     for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
-        if (m_machine_limits_update_from_gcode_enabled[i])
-            m_machine_limits[i].max_acceleration = acceleration;
-
-        if (acceleration > 0.0f)
-            m_acceleration[i] = acceleration;
+        m_time_estimators[i].set_max_acceleration(acceleration);
     }
 }
 
@@ -1540,7 +1586,7 @@ void GCodeProcessor::set_retract_acceleration(float acceleration)
 {
     for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
-        m_machine_limits[i].retract_acceleration = acceleration;
+        m_time_estimators[i].machine_limits.retract_acceleration = acceleration;
     }
 }
 
@@ -1548,8 +1594,8 @@ void GCodeProcessor::set_minimum_feedrate(float feedrate)
 {
     for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
-        if (m_machine_limits_update_from_gcode_enabled[i])
-            m_machine_limits[i].minimum_feedrate = feedrate;
+        if (m_time_estimators[i].machine_limits.update_from_gcode_enabled)
+            m_time_estimators[i].machine_limits.minimum_feedrate = feedrate;
     }
 }
 
@@ -1557,8 +1603,8 @@ void GCodeProcessor::set_minimum_travel_feedrate(float feedrate)
 {
     for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
-        if (m_machine_limits_update_from_gcode_enabled[i])
-            m_machine_limits[i].minimum_travel_feedrate = feedrate;
+        if (m_time_estimators[i].machine_limits.update_from_gcode_enabled)
+            m_time_estimators[i].machine_limits.minimum_travel_feedrate = feedrate;
     }
 }
 
@@ -1566,8 +1612,8 @@ void GCodeProcessor::set_axis_max_feedrate(Axis axis, float feedrate)
 {
     for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
-        if (m_machine_limits_update_from_gcode_enabled[i])
-            m_machine_limits[i].axis_max_feedrate[axis] = feedrate;
+        if (m_time_estimators[i].machine_limits.update_from_gcode_enabled)
+            m_time_estimators[i].machine_limits.axis_max_feedrate[axis] = feedrate;
     }
 }
 
@@ -1575,8 +1621,8 @@ void GCodeProcessor::set_axis_max_acceleration(Axis axis, float acceleration)
 {
     for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
-        if (m_machine_limits_update_from_gcode_enabled[i])
-            m_machine_limits[i].axis_max_acceleration[axis] = acceleration;
+        if (m_time_estimators[i].machine_limits.update_from_gcode_enabled)
+            m_time_estimators[i].machine_limits.axis_max_acceleration[axis] = acceleration;
     }
 }
 
@@ -1584,8 +1630,8 @@ void GCodeProcessor::set_axis_max_jerk(Axis axis, float jerk)
 {
     for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
-        if (m_machine_limits_update_from_gcode_enabled[i])
-            m_machine_limits[i].axis_max_jerk[axis] = jerk;
+        if (m_time_estimators[i].machine_limits.update_from_gcode_enabled)
+            m_time_estimators[i].machine_limits.axis_max_jerk[axis] = jerk;
     }
 }
 
