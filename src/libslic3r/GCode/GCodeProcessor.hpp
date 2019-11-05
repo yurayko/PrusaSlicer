@@ -9,6 +9,8 @@
 #include <boost/nowide/fstream.hpp>
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 #include <string>
+#include <vector>
+#include <array>
 
 namespace Slic3r {
 
@@ -189,6 +191,7 @@ namespace Slic3r {
             float acceleration;    // mm/s^2
             float max_entry_speed; // mm/s
             float safe_feedrate;   // mm/s
+            float elapsed_time;
 
             TimeBlock() { reset(); }
             void reset();
@@ -196,20 +199,47 @@ namespace Slic3r {
             // Calculates this block's trapezoid
             void calculate_trapezoid();
 
+            // Returns the time spent accelerating toward cruise speed, in seconds
+            float acceleration_time() const;
+
+            // Returns the time spent at cruise speed, in seconds
+            float cruise_time() const;
+
+            // Returns the time spent decelerating from cruise speed, in seconds
+            float deceleration_time() const;
+
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
             std::string to_string() const;
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+        };
+
+        // data to calculate color print time estimate
+        struct ColorTimes
+        {
+            bool enabled;
+            std::vector<float> times;
+            float cache;
+
+            ColorTimes() { reset(); }
+            void reset();
+            void store_current_cache() { times.push_back(cache); }
         };
 
         struct TimeEstimator
         {
         private:
             float m_acceleration; // mm/s^2
+            int m_last_processed_block_id;
+            float m_time; // s
 
         public:
             MachineLimits machine_limits;
             TimeFeedrates curr_feedrates;
             TimeFeedrates prev_feedrates;
+            std::vector<TimeBlock> blocks;
+
+            float additional_time; // s
+            ColorTimes color_times;
 
             TimeEstimator() { reset(); }
             void reset();
@@ -217,6 +247,13 @@ namespace Slic3r {
             float get_acceleration() const { return m_acceleration; }
             void set_acceleration(float acceleration);
             void set_max_acceleration(float acceleration);
+
+            void calculate_time();
+
+        private:
+            void recalculate_trapezoids();
+            static void forward_pass_kernel(const TimeBlock& prev, TimeBlock& curr);
+            static void reverse_pass_kernel(TimeBlock& curr, const TimeBlock& next);
         };
 
         struct Move
@@ -238,14 +275,11 @@ namespace Slic3r {
             AxesTuple start_position; // mm
             AxesTuple end_position;   // mm
 
-            std::vector<TimeBlock> blocks;
-
-            Move(EType type, const Metadata& data, const AxesTuple& start_position, const AxesTuple& end_position, const std::vector<TimeBlock>& blocks)
-                : type(type), data(data), start_position(start_position), end_position(end_position), blocks(blocks) {}
+            Move(EType type, const Metadata& data, const AxesTuple& start_position, const AxesTuple& end_position)
+                : type(type), data(data), start_position(start_position), end_position(end_position) {}
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
             std::string to_string() const;
-            std::string to_string_as_block(ETimeEstimateMode mode) const;
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
         };
 
@@ -256,18 +290,6 @@ namespace Slic3r {
 
             RepetierStore() { reset(); }
             void reset();
-        };
-
-        // data to calculate color print time estimate
-        struct ColorTimes
-        {
-            bool enabled;
-            std::vector<float> times;
-            float cache;
-
-            ColorTimes() { reset(); }
-            void reset();
-            void store_current_cache() { times.push_back(cache); }
         };
 
         GCodeParser m_parser;
@@ -284,13 +306,11 @@ namespace Slic3r {
         AxesTuple m_origin;               // mm
         float m_extrude_factor_override_percentage;
 
-        float m_additional_time; // s
         // Additional load / unload times for a filament exchange sequence.
         std::vector<double> m_filament_load_times;
         std::vector<double> m_filament_unload_times;
 
         RepetierStore m_repetier_store;
-        ColorTimes m_color_times;
 
         TimeEstimator m_time_estimators[Num_TimeEstimateModes];
 
@@ -410,13 +430,11 @@ namespace Slic3r {
         // Processes color change tag
         bool process_color_change_tag();
 
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         // Simulates firmware st_synchronize() call
         void simulate_st_synchronize();
 
         // Calculates the time estimate
         void calculate_time();
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         EUnits get_units() const { return m_units; }
         void set_units(EUnits units) { m_units = units; }
@@ -454,8 +472,9 @@ namespace Slic3r {
         float get_extrude_factor_override_percentage() const { return m_extrude_factor_override_percentage; }
         void set_extrude_factor_override_percentage(float percentage) { m_extrude_factor_override_percentage = percentage; }
 
-        float get_additional_time() const { return m_additional_time; }
-        void set_additional_time(float time) { m_additional_time = time; }
+        float get_additional_time(ETimeEstimateMode mode) const { return m_time_estimators[mode].additional_time; }
+        void set_additional_time(float time);
+        void add_additional_time(float time);
 
         float get_filament_load_time(unsigned int extruder_id);
         void set_filament_load_times(const std::vector<double>& filament_load_times) { m_filament_load_times = filament_load_times; }
@@ -509,15 +528,16 @@ namespace Slic3r {
         float get_repetier_store_feedrate() const { return m_repetier_store.feedrate; }
         void set_repetier_store_feedrate(float feedrate) { m_repetier_store.feedrate = feedrate; }
 
-        void enable_color_times(bool enable) { m_color_times.enabled = enable; }
-        float get_color_times_cache() const { return m_color_times.cache; }
-        void set_color_times_cache(float time) { m_color_times.cache = time; }
-        void store_current_color_times_cache() { m_color_times.store_current_cache(); }
+        void enable_color_times(ETimeEstimateMode mode, bool enable) { m_time_estimators[mode].color_times.enabled = enable; }
+        float get_color_times_cache(ETimeEstimateMode mode) const { return m_time_estimators[mode].color_times.cache; }
+        void set_color_times_cache(ETimeEstimateMode mode, float time) { m_time_estimators[mode].color_times.cache = time; }
+        void store_current_color_times_cache(ETimeEstimateMode mode) { m_time_estimators[mode].color_times.store_current_cache(); }
 
         // Checks if the given int is a valid extrusion role (contained into enum ExtrusionRole)
         bool is_valid_extrusion_role(int value) const;
 
-        void store_move(Move::EType type, const std::vector<TimeBlock>& blocks = std::vector<TimeBlock>());
+        void store_move(Move::EType type);
+        void store_blocks(const std::vector<TimeBlock>& blocks);
     };
 
 } /* namespace Slic3r */

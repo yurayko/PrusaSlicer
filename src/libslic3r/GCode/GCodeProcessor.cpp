@@ -40,35 +40,41 @@ std::string to_string(const Slic3r::GCodeProcessor::AxesTuple& position)
 }
 
 namespace Slic3r {
-    // Calculates the maximum allowable speed at this point when you must be able to reach target_velocity using the 
-    // acceleration within the allotted distance.
-    float max_allowable_speed(float acceleration, float target_velocity, float distance)
-    {
-        // to avoid invalid negative numbers due to numerical imprecision 
-        return ::sqrt(std::max(0.0f, sqr(target_velocity) - 2.0f * acceleration * distance));
-    }
+// Calculates the maximum allowable speed at this point when you must be able to reach target_velocity using the 
+// acceleration within the allotted distance.
+float max_allowable_speed(float acceleration, float target_velocity, float distance)
+{
+    // to avoid invalid negative numbers due to numerical imprecision 
+    return ::sqrt(std::max(0.0f, sqr(target_velocity) - 2.0f * acceleration * distance));
+}
 
-    // Calculates the distance (not time) it takes to accelerate from initial_rate to target_rate using the given acceleration:
-    float estimate_acceleration_distance(float initial_rate, float target_rate, float acceleration)
-    {
-        return (acceleration == 0.0f) ? 0.0f : (sqr(target_rate) - sqr(initial_rate)) / (2.0f * acceleration);
-    }
+// Calculates the distance (not time) it takes to accelerate from initial_rate to target_rate using the given acceleration:
+float estimate_acceleration_distance(float initial_rate, float target_rate, float acceleration)
+{
+    return (acceleration == 0.0f) ? 0.0f : (sqr(target_rate) - sqr(initial_rate)) / (2.0f * acceleration);
+}
 
-    // This function gives you the point at which you must start braking (at the rate of -acceleration) if 
-    // you started at speed initial_rate and accelerated until this point and want to end at the final_rate after
-    // a total travel of distance. This can be used to compute the intersection point between acceleration and
-    // deceleration in the cases where the trapezoid has no plateau (i.e. never reaches maximum speed)
-    float intersection_distance(float initial_rate, float final_rate, float acceleration, float distance)
-    {
-        return (acceleration == 0.0f) ? 0.0f : (2.0f * acceleration * distance - sqr(initial_rate) + sqr(final_rate)) / (4.0f * acceleration);
-    }
+// This function gives you the point at which you must start braking (at the rate of -acceleration) if 
+// you started at speed initial_rate and accelerated until this point and want to end at the final_rate after
+// a total travel of distance. This can be used to compute the intersection point between acceleration and
+// deceleration in the cases where the trapezoid has no plateau (i.e. never reaches maximum speed)
+float intersection_distance(float initial_rate, float final_rate, float acceleration, float distance)
+{
+    return (acceleration == 0.0f) ? 0.0f : (2.0f * acceleration * distance - sqr(initial_rate) + sqr(final_rate)) / (4.0f * acceleration);
+}
 
-    // This function gives the final speed while accelerating at the given constant acceleration from the given initial speed along the given distance.
-    float speed_from_distance(float initial_feedrate, float distance, float acceleration)
-    {
-        // to avoid invalid negative numbers due to numerical imprecision 
-        return ::sqrt(std::max(0.0f, sqr(initial_feedrate) + 2.0f * acceleration * distance));
-    }
+// This function gives the final speed while accelerating at the given constant acceleration from the given initial speed along the given distance.
+float speed_from_distance(float initial_feedrate, float distance, float acceleration)
+{
+    // to avoid invalid negative numbers due to numerical imprecision 
+    return ::sqrt(std::max(0.0f, sqr(initial_feedrate) + 2.0f * acceleration * distance));
+}
+
+// This function gives the time needed to accelerate from an initial speed to reach a final distance.
+float acceleration_time_from_distance(float initial_feedrate, float distance, float acceleration)
+{
+    return (acceleration != 0.0f) ? (speed_from_distance(initial_feedrate, distance, acceleration) - initial_feedrate) / acceleration : 0.0f;
+}
 
 bool is_whitespace(char c) { return (c == ' ') || (c == '\t'); }
 bool is_end_of_line(char c) { return (c == '\r') || (c == '\n') || (c == 0); }
@@ -402,6 +408,7 @@ void GCodeProcessor::TimeBlock::reset()
     acceleration = 0.0f;
     max_entry_speed = 0.0f;
     safe_feedrate = 0.0f;
+    elapsed_time = 0.0f;
 }
 
 void GCodeProcessor::TimeBlock::calculate_trapezoid()
@@ -425,6 +432,23 @@ void GCodeProcessor::TimeBlock::calculate_trapezoid()
 
     trapezoid.accelerate_until = accelerate_distance;
     trapezoid.decelerate_after = accelerate_distance + cruise_distance;
+}
+
+float GCodeProcessor::TimeBlock::acceleration_time() const
+{
+    return acceleration_time_from_distance(trapezoid.profile.entry, trapezoid.accelerate_until, acceleration);
+}
+
+float GCodeProcessor::TimeBlock::cruise_time() const
+{
+    float cruise_distance = trapezoid.decelerate_after - trapezoid.accelerate_until;
+    assert(cruise_distance >= 0.0f);
+    return (trapezoid.profile.cruise != 0.0f) ? cruise_distance / trapezoid.profile.cruise : 0.0f;
+}
+
+float GCodeProcessor::TimeBlock::deceleration_time() const
+{
+    return acceleration_time_from_distance(trapezoid.profile.cruise, (trapezoid.distance - trapezoid.decelerate_after), -acceleration);
 }
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
@@ -453,9 +477,14 @@ std::string GCodeProcessor::TimeBlock::to_string() const
 void GCodeProcessor::TimeEstimator::reset()
 {
     m_acceleration = 0.0f;
+    m_last_processed_block_id = -1;
+    m_time = 0.0f;
     machine_limits = MachineLimits();
     curr_feedrates.reset();
     prev_feedrates.reset();
+    blocks.clear();
+    additional_time = 0.0f;
+    color_times.reset();
 }
 
 void GCodeProcessor::TimeEstimator::set_acceleration(float acceleration)
@@ -473,6 +502,119 @@ void GCodeProcessor::TimeEstimator::set_max_acceleration(float acceleration)
 
     if (acceleration > 0.0f)
         m_acceleration = acceleration;
+}
+
+void GCodeProcessor::TimeEstimator::calculate_time()
+{
+    m_time += additional_time;
+    color_times.cache += additional_time;
+
+    for (int i = m_last_processed_block_id + 1; i < (int)blocks.size() - 1; ++i)
+    {
+        forward_pass_kernel(blocks[i], blocks[i + 1]);
+    }
+
+    for (int i = (int)blocks.size() - 1; i >= m_last_processed_block_id + 2; --i)
+    {
+        reverse_pass_kernel(blocks[i - 1], blocks[i]);
+    }
+
+    recalculate_trapezoids();
+
+    for (int i = m_last_processed_block_id + 1; i < (int)blocks.size(); ++i)
+    {
+        TimeBlock& block = blocks[i];
+        float block_time = 0.0f;
+        block_time += block.acceleration_time();
+        block_time += block.cruise_time();
+        block_time += block.deceleration_time();
+        m_time += block_time;
+        block.elapsed_time = m_time;
+
+        color_times.cache += block_time;
+    }
+
+    m_last_processed_block_id = (int)blocks.size() - 1;
+    // The additional time has been consumed (added to the total time), reset it to zero.
+    additional_time = 0.0f;
+}
+
+void GCodeProcessor::TimeEstimator::recalculate_trapezoids()
+{
+    TimeBlock* curr = nullptr;
+    TimeBlock* next = nullptr;
+
+    for (int i = m_last_processed_block_id + 1; i < (int)blocks.size(); ++i)
+    {
+        TimeBlock& b = blocks[i];
+
+        curr = next;
+        next = &b;
+
+        if (curr != nullptr)
+        {
+            // Recalculate if current block entry or exit junction speed has changed.
+            if (curr->flags.recalculate || next->flags.recalculate)
+            {
+                // NOTE: Entry and exit factors always > 0 by all previous logic operations.
+                TimeBlock block = *curr;
+                block.profile.exit = next->profile.entry;
+                block.calculate_trapezoid();
+                curr->trapezoid = block.trapezoid;
+                curr->flags.recalculate = false; // Reset current only to ensure next trapezoid is computed
+            }
+        }
+    }
+
+    // Last/newest block in buffer. Always recalculated.
+    if (next != nullptr)
+    {
+        TimeBlock block = *next;
+        block.profile.exit = next->safe_feedrate;
+        block.calculate_trapezoid();
+        next->trapezoid = block.trapezoid;
+        next->flags.recalculate = false;
+    }
+}
+
+void GCodeProcessor::TimeEstimator::forward_pass_kernel(const TimeBlock& prev, TimeBlock& curr)
+{
+    // If the previous block is an acceleration block, but it is not long enough to complete the
+    // full speed change within the block, we need to adjust the entry speed accordingly. Entry
+    // speeds have already been reset, maximized, and reverse planned by reverse planner.
+    // If nominal length is true, max junction speed is guaranteed to be reached. No need to recheck.
+    if (!prev.flags.nominal_length)
+    {
+        if (prev.profile.entry < curr.profile.entry)
+        {
+            float entry_speed = std::min(curr.profile.entry, max_allowable_speed(-prev.acceleration, prev.profile.entry, prev.distance));
+
+            // Check for junction speed change
+            if (curr.profile.entry != entry_speed)
+            {
+                curr.profile.entry = entry_speed;
+                curr.flags.recalculate = true;
+            }
+        }
+    }
+}
+
+void GCodeProcessor::TimeEstimator::reverse_pass_kernel(TimeBlock& curr, const TimeBlock& next)
+{
+    // If entry speed is already at the maximum entry speed, no need to recheck. Block is cruising.
+    // If not, block in state of acceleration or deceleration. Reset entry speed to maximum and
+    // check for maximum allowable speed reductions to ensure maximum possible planned speed.
+    if (curr.profile.entry != curr.max_entry_speed)
+    {
+        // If nominal length true, max junction speed is guaranteed to be reached. Only compute
+        // for max allowable speed if block is decelerating and nominal length is false.
+        if (!curr.flags.nominal_length && (curr.max_entry_speed > next.profile.entry))
+            curr.profile.entry = std::min(curr.max_entry_speed, max_allowable_speed(-curr.acceleration, next.profile.entry, curr.distance));
+        else
+            curr.profile.entry = curr.max_entry_speed;
+
+        curr.flags.recalculate = true;
+    }
 }
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
@@ -494,16 +636,6 @@ std::string GCodeProcessor::Move::to_string() const
 
     ret += " start:" + ::to_string(start_position);
     ret += " end:" + ::to_string(end_position);
-
-    return ret;
-}
-
-std::string GCodeProcessor::Move::to_string_as_block(ETimeEstimateMode mode) const
-{
-    std::string ret;
-
-    if ((int)mode < (int)blocks.size())
-        ret = blocks[mode].to_string();
 
     return ret;
 }
@@ -546,8 +678,6 @@ void GCodeProcessor::reset()
 
     m_extrude_factor_override_percentage = DEFAULT_EXTRUDE_FACTOR_OVERRIDE_PERCENTAGE;
 
-    m_additional_time = 0.0f;
-
     for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
         m_time_estimators[i].reset();
@@ -563,7 +693,6 @@ void GCodeProcessor::reset()
     m_filament_unload_times.clear();
 
     m_repetier_store.reset();
-    m_color_times.reset();
 
     m_moves.clear();
 }
@@ -649,6 +778,14 @@ bool GCodeProcessor::process_file(const std::string& filename)
     m_out_blocks_silent.open(blocks_silent_path.string());
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     bool res = m_parser.parse_file(filename, [this](const GCodeLine& line) { process_gcode_line(line); });
+    if (res)
+    {
+        for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+        {
+            m_time_estimators[i].calculate_time();
+        }
+    }
+
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     m_out_moves.close();
     m_out_blocks_normal.close();
@@ -860,7 +997,7 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
         TimeFeedrates& prev = time_estimator.prev_feedrates;
         TimeBlock& block = blocks[i];
 
-        block.reset();
+//        block.reset();
         block.distance = distance;
 
         // calculates time-block feedrate
@@ -901,7 +1038,7 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
 
         block.acceleration = acceleration;
 
-        // calculates block exit feedrate
+        // calculate block exit feedrate
         curr.safe_feedrate = block.profile.cruise;
 
         for (unsigned char j = X; j <= E; ++j)
@@ -913,7 +1050,7 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
 
         block.profile.exit = curr.safe_feedrate;
 
-        // calculates block entry feedrate
+        // calculate block entry feedrate
         float vmax_junction = curr.safe_feedrate;
         // ET_FIXME: we should check for unprocessed blocks instead of moves count see GCodeTimeEstimator 
         if (!m_moves.empty() && (prev.feedrate > PREVIOUS_FEEDRATE_THRESHOLD))
@@ -984,10 +1121,10 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
         block.flags.recalculate = true;
         block.safe_feedrate = curr.safe_feedrate;
 
-        // calculates block trapezoid
+        // calculate block trapezoid
         block.calculate_trapezoid();
 
-        // updates previous
+        // update previous
         prev = curr;
     }
 
@@ -995,11 +1132,12 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
     if ((type == Move::Extrude) && ((get_width() == 0.0f) || (get_height() == 0.0f) || !is_valid_extrusion_role(role)))
         type = Move::Travel;
 
-    // updates position
+    // update position
     set_end_position(new_pos);
 
-    // stores the move
-    store_move(type, blocks);
+    // store the move and blocks
+    store_move(type);
+    store_blocks(blocks);
 
     return true;
 }
@@ -1009,7 +1147,7 @@ bool GCodeProcessor::process_G4(const GCodeLine& line)
     GCodeFlavor flavor = get_gcode_flavor();
 
     if (line.has('P'))
-        set_additional_time(get_additional_time() + line.value('P') * MILLISEC_TO_SEC);
+        add_additional_time(line.value('P') * MILLISEC_TO_SEC);
 
     // see: http://reprap.org/wiki/G-code#G4:_Dwell
     if ((flavor == gcfRepetier) ||
@@ -1018,12 +1156,10 @@ bool GCodeProcessor::process_G4(const GCodeLine& line)
         (flavor == gcfRepRap))
     {
         if (line.has('S'))
-            set_additional_time(get_additional_time() + line.value('S'));
+            add_additional_time(line.value('S'));
     }
 
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     simulate_st_synchronize();
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     return true;
 }
@@ -1098,11 +1234,7 @@ bool GCodeProcessor::process_G92(const GCodeLine& line)
             anyFound = true;
         }
         else if (a == E)
-        {
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
             simulate_st_synchronize();
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-        }
     }
 
     if (!anyFound)
@@ -1113,9 +1245,7 @@ bool GCodeProcessor::process_G92(const GCodeLine& line)
 
 bool GCodeProcessor::process_M1(const GCodeLine& line)
 {
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     simulate_st_synchronize();
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     return true;
 }
 
@@ -1380,11 +1510,9 @@ bool GCodeProcessor::process_M702(const GCodeLine& line)
         // MK3 MMU2 specific M code:
         // M702 C is expected to be sent by the custom end G-code when finalizing a print.
         // The MK3 unit shall unload and park the active filament into the MMU2 unit.
-        set_additional_time(get_additional_time() + get_filament_unload_time(get_extruder_id()));
+        add_additional_time(get_filament_unload_time(get_extruder_id()));
         set_extruder_id(UNLOADED_EXTRUDER_ID);
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         simulate_st_synchronize();
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     }
 
     return true;
@@ -1409,12 +1537,10 @@ bool GCodeProcessor::process_T(const GCodeLine& line)
             {
                 // Specific to the MK3 MMU2: The initial extruder ID is set to -1 indicating
                 // that the filament is parked in the MMU2 unit and there is nothing to be unloaded yet.
-                set_additional_time(get_additional_time() + get_filament_unload_time(old_id));
+                add_additional_time(get_filament_unload_time(old_id));
                 set_extruder_id(new_id);
-                set_additional_time(get_additional_time() + get_filament_load_time(new_id));
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+                add_additional_time(get_filament_load_time(new_id));
                 simulate_st_synchronize();
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
             }
 
             // stores tool change move
@@ -1522,20 +1648,28 @@ bool GCodeProcessor::process_height_tag(const std::string& comment, size_t pos)
 bool GCodeProcessor::process_color_change_tag()
 {
     set_color_id(get_color_id() + 1);
-    enable_color_times(true);
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-    calculate_time();
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-    if (get_color_times_cache() > 0.0f)
+
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
-        store_current_color_times_cache();
-        set_color_times_cache(0.0f);
+        ETimeEstimateMode m = (ETimeEstimateMode)i;
+        enable_color_times(m, true);
+    }
+
+    calculate_time();
+
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        ETimeEstimateMode m = (ETimeEstimateMode)i;
+        if (get_color_times_cache(m) > 0.0f)
+        {
+            store_current_color_times_cache(m);
+            set_color_times_cache(m, 0.0f);
+        }
     }
 
     return true;
 }
 
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 void GCodeProcessor::simulate_st_synchronize()
 {
     calculate_time();
@@ -1543,8 +1677,11 @@ void GCodeProcessor::simulate_st_synchronize()
 
 void GCodeProcessor::calculate_time()
 {
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        m_time_estimators[i].calculate_time();
+    }
 }
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 float GCodeProcessor::get_filament_load_time(unsigned int extruder_id)
 {
@@ -1564,6 +1701,22 @@ float GCodeProcessor::get_filament_unload_time(unsigned int extruder_id)
         (m_filament_unload_times.size() <= extruder_id) ?
         (float)m_filament_unload_times.front() :
         (float)m_filament_unload_times[extruder_id];
+}
+
+void GCodeProcessor::set_additional_time(float time)
+{
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        m_time_estimators[i].additional_time = time;
+    }
+}
+
+void GCodeProcessor::add_additional_time(float time)
+{
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        m_time_estimators[i].additional_time += time;
+    }
 }
 
 void GCodeProcessor::set_acceleration(float acceleration)
@@ -1640,7 +1793,7 @@ bool GCodeProcessor::is_valid_extrusion_role(int value) const
     return ((int)erNone <= value) && (value <= (int)erMixed);
 }
 
-void GCodeProcessor::store_move(Move::EType type, const std::vector<TimeBlock>& blocks)
+void GCodeProcessor::store_move(Move::EType type)
 {
     unsigned int extruder_id = get_extruder_id();
     extruder_id = (extruder_id == UNLOADED_EXTRUDER_ID) ? 0 : extruder_id;
@@ -1656,19 +1809,28 @@ void GCodeProcessor::store_move(Move::EType type, const std::vector<TimeBlock>& 
     end_position[0] += (float)extruder_offset(0);
     end_position[1] += (float)extruder_offset(1);
 
-    m_moves.emplace_back(type, data, start_position, end_position, blocks);
+    m_moves.emplace_back(type, data, start_position, end_position);
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     if (m_out_moves.good())
         m_out_moves << m_moves.back().to_string() << std::endl;
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+}
 
+void GCodeProcessor::store_blocks(const std::vector<TimeBlock>& blocks)
+{
+    assert(blocks.size() == Num_TimeEstimateModes);
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        m_time_estimators[i].blocks.push_back(blocks[i]);
+    }
+
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     if (m_out_blocks_normal.good())
-        m_out_blocks_normal << m_moves.back().to_string_as_block(Normal) << std::endl;
+        m_out_blocks_normal << m_time_estimators[Normal].blocks.back().to_string() << std::endl;
 
     if (m_out_blocks_silent.good())
-        m_out_blocks_silent << m_moves.back().to_string_as_block(Silent) << std::endl;
-
-//    std::cout << "Moves size: " << m_moves.size() << " (" << m_moves.size() * sizeof(Move) << " = " << (double)(m_moves.size() * sizeof(Move)) / (1024.0 * 1024.0) << "MB)" << std::endl;
+        m_out_blocks_silent << m_time_estimators[Silent].blocks.back().to_string() << std::endl;
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 }
 

@@ -1308,6 +1308,10 @@ void GCode::_do_export(Print &print, FILE *file)
     if (m_silent_time_estimator_enabled)
         m_silent_time_estimator.calculate_time(false);
 
+//#if ENABLE_GCODE_PROCESSOR
+//    m_processor.calculate_time();
+//#endif // ENABLE_GCODE_PROCESSOR
+
     // Get filament stats.
     print.m_print_statistics.clear();
     print.m_print_statistics.estimated_normal_print_time = m_normal_time_estimator.get_time_dhms();
