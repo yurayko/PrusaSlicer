@@ -154,19 +154,21 @@ namespace Slic3r {
 
         struct TimeBlock
         {
-            struct Profile
+            static const TimeBlock Dummy;
+
+            struct FeedrateProfile
             {
                 float entry;  // mm/s
                 float cruise; // mm/s
                 float exit;   // mm/s
 
-                Profile() { reset(); }
+                FeedrateProfile() { reset(); }
                 void reset();
             };
 
             struct Trapezoid
             {
-                Profile profile;
+                FeedrateProfile profile;
                 float distance;         // mm
                 float accelerate_until; // mm
                 float decelerate_after; // mm
@@ -184,7 +186,7 @@ namespace Slic3r {
                 void reset();
             };
 
-            Profile profile;
+            FeedrateProfile profile;
             Trapezoid trapezoid;
             Flags flags;
             float distance;        // mm
@@ -199,6 +201,17 @@ namespace Slic3r {
             // Calculates this block's trapezoid
             void calculate_trapezoid();
 
+            // Calculates this block's time
+            float calculate_time();
+
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+            std::string to_string() const;
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+
+            static void forward_pass_kernel(const TimeBlock& prev, TimeBlock& curr);
+            static void reverse_pass_kernel(TimeBlock& curr, const TimeBlock& next);
+
+        private:
             // Returns the time spent accelerating toward cruise speed, in seconds
             float acceleration_time() const;
 
@@ -207,10 +220,6 @@ namespace Slic3r {
 
             // Returns the time spent decelerating from cruise speed, in seconds
             float deceleration_time() const;
-
-#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
-            std::string to_string() const;
-#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
         };
 
         // data to calculate color print time estimate
@@ -225,21 +234,20 @@ namespace Slic3r {
             void store_current_cache() { times.push_back(cache); }
         };
 
-        struct TimeEstimator
+        class TimeEstimator
         {
-        private:
             float m_acceleration; // mm/s^2
-            int m_last_processed_block_id;
             float m_time; // s
+            std::vector<TimeBlock> m_blocks;
+            int m_last_processed_block_id;
 
         public:
             MachineLimits machine_limits;
             TimeFeedrates curr_feedrates;
             TimeFeedrates prev_feedrates;
-            std::vector<TimeBlock> blocks;
 
-            float additional_time; // s
             ColorTimes color_times;
+            float additional_time; // s
 
             TimeEstimator() { reset(); }
             void reset();
@@ -248,12 +256,17 @@ namespace Slic3r {
             void set_acceleration(float acceleration);
             void set_max_acceleration(float acceleration);
 
+            void append_block(const TimeBlock& block) { m_blocks.push_back(block); }
+            const TimeBlock& get_block(unsigned int id) const { return (id < (unsigned int)m_blocks.size()) ? m_blocks[id] : TimeBlock::Dummy; }
+            unsigned int get_blocks_count() const { return (unsigned int)m_blocks.size(); }
+
             void calculate_time();
+
+            // Returns the estimated time, in seconds
+            float get_time() const { return m_time; }
 
         private:
             void recalculate_trapezoids();
-            static void forward_pass_kernel(const TimeBlock& prev, TimeBlock& curr);
-            static void reverse_pass_kernel(TimeBlock& curr, const TimeBlock& next);
         };
 
         struct Move
@@ -347,6 +360,9 @@ namespace Slic3r {
         // Process the gcode contained in the file with the given filename
         // Return false if any error occourred
         bool process_file(const std::string& filename);
+
+        // Returns the estimated time, in seconds
+        float get_time(ETimeEstimateMode mode) const { return m_time_estimators[mode].get_time(); }
 
     private:
         bool process_gcode_line(const GCodeLine& line);

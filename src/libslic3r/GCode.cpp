@@ -1304,13 +1304,19 @@ void GCode::_do_export(Print &print, FILE *file)
     print.throw_if_canceled();
 
     // calculates estimated printing time
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+    m_normal_time_estimator.calculate_time(false);
+    std::cout << "GCode Estimated time Normal: " << m_normal_time_estimator.get_time() << " sec" << std::endl;
+    if (m_silent_time_estimator_enabled)
+    {
+        m_silent_time_estimator.calculate_time(false);
+        std::cout << "GCode Estimated time Silent: " << m_silent_time_estimator.get_time() << " sec" << std::endl;
+    }
+#else
     m_normal_time_estimator.calculate_time(false);
     if (m_silent_time_estimator_enabled)
         m_silent_time_estimator.calculate_time(false);
-
-//#if ENABLE_GCODE_PROCESSOR
-//    m_processor.calculate_time();
-//#endif // ENABLE_GCODE_PROCESSOR
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 
     // Get filament stats.
     print.m_print_statistics.clear();

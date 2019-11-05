@@ -203,13 +203,15 @@ void GCodeAnalyzer::_process_gcode_line(GCodeReader&, const GCodeReader::GCodeLi
     // processes 'special' comments contained in line
     if (_process_tags(line))
     {
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#if 1
-//#if 0
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_GCODE_PROCESSOR
+        // DEBUG ONLY: puts the line back into the gcode
+        m_process_output += line.raw() + "\n";
+#else
+#if 0
         // DEBUG ONLY: puts the line back into the gcode
         m_process_output += line.raw() + "\n";
 #endif
+#endif // ENABLE_GCODE_PROCESSOR
         return;
     }
 

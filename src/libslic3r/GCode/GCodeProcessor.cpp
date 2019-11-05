@@ -377,7 +377,7 @@ void GCodeProcessor::TimeFeedrates::reset()
     ::memset(abs_axis_feedrate.data(), 0, sizeof(AxesTuple));
 }
 
-void GCodeProcessor::TimeBlock::Profile::reset()
+void GCodeProcessor::TimeBlock::FeedrateProfile::reset()
 {
     entry = 0.0f;
     cruise = 0.0f;
@@ -397,6 +397,8 @@ void GCodeProcessor::TimeBlock::Flags::reset()
     recalculate = false;
     nominal_length = false;
 }
+
+const GCodeProcessor::TimeBlock GCodeProcessor::TimeBlock::Dummy = GCodeProcessor::TimeBlock();
 
 void GCodeProcessor::TimeBlock::reset()
 {
@@ -434,21 +436,9 @@ void GCodeProcessor::TimeBlock::calculate_trapezoid()
     trapezoid.decelerate_after = accelerate_distance + cruise_distance;
 }
 
-float GCodeProcessor::TimeBlock::acceleration_time() const
+float GCodeProcessor::TimeBlock::calculate_time()
 {
-    return acceleration_time_from_distance(trapezoid.profile.entry, trapezoid.accelerate_until, acceleration);
-}
-
-float GCodeProcessor::TimeBlock::cruise_time() const
-{
-    float cruise_distance = trapezoid.decelerate_after - trapezoid.accelerate_until;
-    assert(cruise_distance >= 0.0f);
-    return (trapezoid.profile.cruise != 0.0f) ? cruise_distance / trapezoid.profile.cruise : 0.0f;
-}
-
-float GCodeProcessor::TimeBlock::deceleration_time() const
-{
-    return acceleration_time_from_distance(trapezoid.profile.cruise, (trapezoid.distance - trapezoid.decelerate_after), -acceleration);
+    return acceleration_time() + cruise_time() + deceleration_time();
 }
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
@@ -474,17 +464,74 @@ std::string GCodeProcessor::TimeBlock::to_string() const
 }
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 
+void GCodeProcessor::TimeBlock::forward_pass_kernel(const TimeBlock& prev, TimeBlock& curr)
+{
+    // If the previous block is an acceleration block, but it is not long enough to complete the
+    // full speed change within the block, we need to adjust the entry speed accordingly. Entry
+    // speeds have already been reset, maximized, and reverse planned by reverse planner.
+    // If nominal length is true, max junction speed is guaranteed to be reached. No need to recheck.
+    if (!prev.flags.nominal_length)
+    {
+        if (prev.profile.entry < curr.profile.entry)
+        {
+            float entry_speed = std::min(curr.profile.entry, max_allowable_speed(-prev.acceleration, prev.profile.entry, prev.distance));
+
+            // Check for junction speed change
+            if (curr.profile.entry != entry_speed)
+            {
+                curr.profile.entry = entry_speed;
+                curr.flags.recalculate = true;
+            }
+        }
+    }
+}
+
+void GCodeProcessor::TimeBlock::reverse_pass_kernel(TimeBlock& curr, const TimeBlock& next)
+{
+    // If entry speed is already at the maximum entry speed, no need to recheck. Block is cruising.
+    // If not, block in state of acceleration or deceleration. Reset entry speed to maximum and
+    // check for maximum allowable speed reductions to ensure maximum possible planned speed.
+    if (curr.profile.entry != curr.max_entry_speed)
+    {
+        // If nominal length true, max junction speed is guaranteed to be reached. Only compute
+        // for max allowable speed if block is decelerating and nominal length is false.
+        if (!curr.flags.nominal_length && (curr.max_entry_speed > next.profile.entry))
+            curr.profile.entry = std::min(curr.max_entry_speed, max_allowable_speed(-curr.acceleration, next.profile.entry, curr.distance));
+        else
+            curr.profile.entry = curr.max_entry_speed;
+
+        curr.flags.recalculate = true;
+    }
+}
+
+float GCodeProcessor::TimeBlock::acceleration_time() const
+{
+    return acceleration_time_from_distance(trapezoid.profile.entry, trapezoid.accelerate_until, acceleration);
+}
+
+float GCodeProcessor::TimeBlock::cruise_time() const
+{
+    float cruise_distance = trapezoid.decelerate_after - trapezoid.accelerate_until;
+    assert(cruise_distance >= 0.0f);
+    return (trapezoid.profile.cruise != 0.0f) ? cruise_distance / trapezoid.profile.cruise : 0.0f;
+}
+
+float GCodeProcessor::TimeBlock::deceleration_time() const
+{
+    return acceleration_time_from_distance(trapezoid.profile.cruise, (trapezoid.distance - trapezoid.decelerate_after), -acceleration);
+}
+
 void GCodeProcessor::TimeEstimator::reset()
 {
     m_acceleration = 0.0f;
-    m_last_processed_block_id = -1;
     m_time = 0.0f;
+    m_blocks.clear();
+    m_last_processed_block_id = -1;
     machine_limits = MachineLimits();
     curr_feedrates.reset();
     prev_feedrates.reset();
-    blocks.clear();
-    additional_time = 0.0f;
     color_times.reset();
+    additional_time = 0.0f;
 }
 
 void GCodeProcessor::TimeEstimator::set_acceleration(float acceleration)
@@ -506,35 +553,31 @@ void GCodeProcessor::TimeEstimator::set_max_acceleration(float acceleration)
 
 void GCodeProcessor::TimeEstimator::calculate_time()
 {
-    m_time += additional_time;
-    color_times.cache += additional_time;
-
-    for (int i = m_last_processed_block_id + 1; i < (int)blocks.size() - 1; ++i)
+    for (int i = m_last_processed_block_id + 1; i < (int)m_blocks.size() - 1; ++i)
     {
-        forward_pass_kernel(blocks[i], blocks[i + 1]);
+        TimeBlock::forward_pass_kernel(m_blocks[i], m_blocks[i + 1]);
     }
 
-    for (int i = (int)blocks.size() - 1; i >= m_last_processed_block_id + 2; --i)
+    for (int i = (int)m_blocks.size() - 1; i >= m_last_processed_block_id + 2; --i)
     {
-        reverse_pass_kernel(blocks[i - 1], blocks[i]);
+        TimeBlock::reverse_pass_kernel(m_blocks[i - 1], m_blocks[i]);
     }
 
     recalculate_trapezoids();
 
-    for (int i = m_last_processed_block_id + 1; i < (int)blocks.size(); ++i)
-    {
-        TimeBlock& block = blocks[i];
-        float block_time = 0.0f;
-        block_time += block.acceleration_time();
-        block_time += block.cruise_time();
-        block_time += block.deceleration_time();
-        m_time += block_time;
-        block.elapsed_time = m_time;
+    m_time += additional_time;
+    color_times.cache += additional_time;
 
+    for (int i = m_last_processed_block_id + 1; i < (int)m_blocks.size(); ++i)
+    {
+        TimeBlock& block = m_blocks[i];
+        float block_time = block.calculate_time();
+        m_time += block_time;
         color_times.cache += block_time;
+        block.elapsed_time = m_time;
     }
 
-    m_last_processed_block_id = (int)blocks.size() - 1;
+    m_last_processed_block_id = (int)m_blocks.size() - 1;
     // The additional time has been consumed (added to the total time), reset it to zero.
     additional_time = 0.0f;
 }
@@ -544,9 +587,9 @@ void GCodeProcessor::TimeEstimator::recalculate_trapezoids()
     TimeBlock* curr = nullptr;
     TimeBlock* next = nullptr;
 
-    for (int i = m_last_processed_block_id + 1; i < (int)blocks.size(); ++i)
+    for (int i = m_last_processed_block_id + 1; i < (int)m_blocks.size(); ++i)
     {
-        TimeBlock& b = blocks[i];
+        TimeBlock& b = m_blocks[i];
 
         curr = next;
         next = &b;
@@ -574,46 +617,6 @@ void GCodeProcessor::TimeEstimator::recalculate_trapezoids()
         block.calculate_trapezoid();
         next->trapezoid = block.trapezoid;
         next->flags.recalculate = false;
-    }
-}
-
-void GCodeProcessor::TimeEstimator::forward_pass_kernel(const TimeBlock& prev, TimeBlock& curr)
-{
-    // If the previous block is an acceleration block, but it is not long enough to complete the
-    // full speed change within the block, we need to adjust the entry speed accordingly. Entry
-    // speeds have already been reset, maximized, and reverse planned by reverse planner.
-    // If nominal length is true, max junction speed is guaranteed to be reached. No need to recheck.
-    if (!prev.flags.nominal_length)
-    {
-        if (prev.profile.entry < curr.profile.entry)
-        {
-            float entry_speed = std::min(curr.profile.entry, max_allowable_speed(-prev.acceleration, prev.profile.entry, prev.distance));
-
-            // Check for junction speed change
-            if (curr.profile.entry != entry_speed)
-            {
-                curr.profile.entry = entry_speed;
-                curr.flags.recalculate = true;
-            }
-        }
-    }
-}
-
-void GCodeProcessor::TimeEstimator::reverse_pass_kernel(TimeBlock& curr, const TimeBlock& next)
-{
-    // If entry speed is already at the maximum entry speed, no need to recheck. Block is cruising.
-    // If not, block in state of acceleration or deceleration. Reset entry speed to maximum and
-    // check for maximum allowable speed reductions to ensure maximum possible planned speed.
-    if (curr.profile.entry != curr.max_entry_speed)
-    {
-        // If nominal length true, max junction speed is guaranteed to be reached. Only compute
-        // for max allowable speed if block is decelerating and nominal length is false.
-        if (!curr.flags.nominal_length && (curr.max_entry_speed > next.profile.entry))
-            curr.profile.entry = std::min(curr.max_entry_speed, max_allowable_speed(-curr.acceleration, next.profile.entry, curr.distance));
-        else
-            curr.profile.entry = curr.max_entry_speed;
-
-        curr.flags.recalculate = true;
     }
 }
 
@@ -783,6 +786,9 @@ bool GCodeProcessor::process_file(const std::string& filename)
         for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
         {
             m_time_estimators[i].calculate_time();
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+            std::cout << "GCode Estimated time " << i << ": " << m_time_estimators[i].get_time() << " sec" << std::endl;
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
         }
     }
 
@@ -1822,15 +1828,15 @@ void GCodeProcessor::store_blocks(const std::vector<TimeBlock>& blocks)
     assert(blocks.size() == Num_TimeEstimateModes);
     for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
-        m_time_estimators[i].blocks.push_back(blocks[i]);
+        m_time_estimators[i].append_block(blocks[i]);
     }
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     if (m_out_blocks_normal.good())
-        m_out_blocks_normal << m_time_estimators[Normal].blocks.back().to_string() << std::endl;
+        m_out_blocks_normal << m_time_estimators[Normal].get_block(m_time_estimators[Normal].get_blocks_count() - 1).to_string() << std::endl;
 
     if (m_out_blocks_silent.good())
-        m_out_blocks_silent << m_time_estimators[Silent].blocks.back().to_string() << std::endl;
+        m_out_blocks_silent << m_time_estimators[Silent].get_block(m_time_estimators[Silent].get_blocks_count() - 1).to_string() << std::endl;
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 }
 
