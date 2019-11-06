@@ -69,18 +69,6 @@ namespace Slic3r {
 
     class GCodeProcessor
     {
-        enum EUnits : unsigned char
-        {
-            Millimeters,
-            Inches
-        };
-
-        enum EPositioningType : unsigned char
-        {
-            Absolute,
-            Relative
-        };
-
     public:
         enum ETimeEstimateMode : unsigned char
         {
@@ -94,6 +82,22 @@ namespace Slic3r {
         static const std::string Width_Tag;
         static const std::string Height_Tag;
         static const std::string Color_Change_Tag;
+
+        // A tuple on XYZE axes
+        typedef std::array<float, NUM_AXES - 1> AxesTuple;
+
+    private:
+        enum EUnits : unsigned char
+        {
+            Millimeters,
+            Inches
+        };
+
+        enum EPositioningType : unsigned char
+        {
+            Absolute,
+            Relative
+        };
 
         struct MachineLimits
         {
@@ -128,18 +132,14 @@ namespace Slic3r {
             Metadata() { reset(); }
             Metadata(ExtrusionRole extrusion_role, float mm3_per_mm, float width, float height, float feedrate, float fan_speed, 
                 unsigned int extruder_id, unsigned int color_id)
-                : extrusion_role(extrusion_role), mm3_per_mm(mm3_per_mm), width(width), height(height), feedrate(feedrate), fan_speed(fan_speed), 
-                extruder_id(extruder_id), color_id(color_id) {}
+                : extrusion_role(extrusion_role), mm3_per_mm(mm3_per_mm), width(width), height(height), feedrate(feedrate), fan_speed(fan_speed)
+                , extruder_id(extruder_id), color_id(color_id) {}
             void reset();
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
             std::string to_string() const;
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
         };
 
-        // A tuple on XYZE axes
-        typedef std::array<float, NUM_AXES - 1> AxesTuple;
-
-    private:
         // data to calculate time estimate
         struct TimeFeedrates
         {
@@ -309,7 +309,7 @@ namespace Slic3r {
             void recalculate_trapezoids();
         };
 
-        struct Move
+        struct GCodeMove
         {
             enum EType : unsigned char
             {
@@ -331,7 +331,7 @@ namespace Slic3r {
             float elapsed_time[Num_TimeEstimateModes]; // s
             float remaining_time[Num_TimeEstimateModes]; // s
 
-            Move(EType type, const Metadata& data, const AxesTuple& start_position, const AxesTuple& end_position, int block_id)
+            GCodeMove(EType type, const Metadata& data, const AxesTuple& start_position, const AxesTuple& end_position, int block_id)
                 : type(type), data(data), start_position(start_position), end_position(end_position), block_id(block_id)
             {
                 for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
@@ -377,7 +377,7 @@ namespace Slic3r {
 
         TimeEstimator m_time_estimators[Num_TimeEstimateModes];
 
-        std::vector<Move> m_moves;
+        std::vector<GCodeMove> m_moves;
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
         boost::nowide::ofstream m_out_moves;
         boost::nowide::ofstream m_out_blocks_normal;
@@ -605,7 +605,7 @@ namespace Slic3r {
         // Checks if the given int is a valid extrusion role (contained into enum ExtrusionRole)
         bool is_valid_extrusion_role(int value) const;
 
-        void store_move(Move::EType type, int bolck_id = -1);
+        void store_move(GCodeMove::EType type, int bolck_id = -1);
         void store_blocks(const std::vector<TimeBlock>& blocks);
     };
 

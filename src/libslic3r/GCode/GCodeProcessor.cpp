@@ -706,7 +706,7 @@ void GCodeProcessor::TimeEstimator::recalculate_trapezoids()
 }
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
-std::string GCodeProcessor::Move::to_string() const
+std::string GCodeProcessor::GCodeMove::to_string() const
 {
     std::string ret;
 
@@ -883,7 +883,7 @@ bool GCodeProcessor::process_file(const std::string& filename)
             float elapsed_time = 0.0f;
             float remaining_time = final_time;
 
-            for (Move& m : m_moves)
+            for (GCodeMove& m : m_moves)
             {
                 if (m.block_id >= 0)
                 {
@@ -912,7 +912,7 @@ bool GCodeProcessor::process_file(const std::string& filename)
 size_t GCodeProcessor::memory_used() const
 {
     size_t out = sizeof(*this);
-    out += SLIC3R_STDVEC_MEMSIZE(m_moves, Move);
+    out += SLIC3R_STDVEC_MEMSIZE(m_moves, GCodeMove);
     for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
     {
         out += m_time_estimators[i].memory_used();
@@ -1069,26 +1069,26 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
         return true;
 
     // Detects move type
-    Move::EType type = Move::Noop;
+    GCodeMove::EType type = GCodeMove::Noop;
 
     if (delta_pos[E] < 0.0f)
     {
         if ((delta_pos[X] != 0.0f) || (delta_pos[Y] != 0.0f) || (delta_pos[Z] != 0.0f))
-            type = Move::Travel;
+            type = GCodeMove::Travel;
         else
-            type = Move::Retract;
+            type = GCodeMove::Retract;
     }
     else if (delta_pos[E] > 0.0f)
     {
         if ((delta_pos[X] == 0.0f) && (delta_pos[Y] == 0.0f) && (delta_pos[Z] == 0.0f))
-            type = Move::Unretract;
+            type = GCodeMove::Unretract;
         else if ((delta_pos[X] != 0.0f) || (delta_pos[Y] != 0.0f))
-            type = Move::Extrude;
+            type = GCodeMove::Extrude;
     }
     else if ((delta_pos[X] != 0.0f) || (delta_pos[Y] != 0.0f) || (delta_pos[Z] != 0.0f))
-        type = Move::Travel;
+        type = GCodeMove::Travel;
 
-    if (type == Move::Noop)
+    if (type == GCodeMove::Noop)
         return true;
 
     // calculates data for time estimation
@@ -1118,7 +1118,7 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
         block.distance = distance;
 
         // calculates time-block feedrate
-        curr.feedrate = std::max(get_feedrate(), (type == Move::Travel) ? get_minimum_travel_feedrate(m) : get_minimum_feedrate(m));
+        curr.feedrate = std::max(get_feedrate(), (type == GCodeMove::Travel) ? get_minimum_travel_feedrate(m) : get_minimum_feedrate(m));
 
         float min_feedrate_factor = 1.0f;
         for (unsigned char j = X; j <= E; ++j)
@@ -1246,8 +1246,8 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
     }
 
     ExtrusionRole role = get_extrusion_role();
-    if ((type == Move::Extrude) && ((get_width() == 0.0f) || (get_height() == 0.0f) || !is_valid_extrusion_role(role)))
-        type = Move::Travel;
+    if ((type == GCodeMove::Extrude) && ((get_width() == 0.0f) || (get_height() == 0.0f) || !is_valid_extrusion_role(role)))
+        type = GCodeMove::Travel;
 
     // update position
     set_end_position(new_pos);
@@ -1288,14 +1288,14 @@ bool GCodeProcessor::process_G4(const GCodeLine& line)
 bool GCodeProcessor::process_G10(const GCodeLine& line)
 {
     // stores retract move
-    store_move(Move::Retract);
+    store_move(GCodeMove::Retract);
     return true;
 }
 
 bool GCodeProcessor::process_G11(const GCodeLine& line)
 {
     // stores unretract move
-    store_move(Move::Unretract);
+    store_move(GCodeMove::Unretract);
     return true;
 }
 
@@ -1314,14 +1314,14 @@ bool GCodeProcessor::process_G21(const GCodeLine& line)
 bool GCodeProcessor::process_G22(const GCodeLine& line)
 {
     // stores retract move
-    store_move(Move::Retract);
+    store_move(GCodeMove::Retract);
     return true;
 }
 
 bool GCodeProcessor::process_G23(const GCodeLine& line)
 {
     // stores unretract move
-    store_move(Move::Unretract);
+    store_move(GCodeMove::Unretract);
     return true;
 }
 
@@ -1662,7 +1662,7 @@ bool GCodeProcessor::process_T(const GCodeLine& line)
 
             // stores tool change move
             if (old_id != UNLOADED_EXTRUDER_ID)
-                store_move(Move::Tool_change);
+                store_move(GCodeMove::Tool_change);
         }
     }
 
@@ -1909,7 +1909,7 @@ bool GCodeProcessor::is_valid_extrusion_role(int value) const
     return ((int)erNone <= value) && (value <= (int)erMixed);
 }
 
-void GCodeProcessor::store_move(Move::EType type, int block_id)
+void GCodeProcessor::store_move(GCodeMove::EType type, int block_id)
 {
     unsigned int extruder_id = get_extruder_id();
     extruder_id = (extruder_id == UNLOADED_EXTRUDER_ID) ? 0 : extruder_id;
