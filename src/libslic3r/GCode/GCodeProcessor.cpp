@@ -8,9 +8,7 @@
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 #include <float.h>
 
-#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 #include "Utils.hpp"
-#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 
 static const float MMMIN_TO_MMSEC = 1.0f / 60.0f;
 static const float INCHES_TO_MM = 25.4f;
@@ -84,12 +82,14 @@ bool is_whitespace(char c) { return (c == ' ') || (c == '\t'); }
 bool is_end_of_line(char c) { return (c == '\r') || (c == '\n') || (c == 0); }
 bool is_end_of_gcode_line(char c) { return (c == ';') || is_end_of_line(c); }
 bool is_end_of_word(char c) { return is_whitespace(c) || is_end_of_gcode_line(c); }
+
 const char* skip_whitespaces(const char* c)
 {
     for (; is_whitespace(*c); ++c)
         ; // silence -Wempty-body
     return c;
 }
+
 const char* skip_word(const char* c)
 {
     for (; !is_end_of_word(*c); ++c)
@@ -529,10 +529,12 @@ float GCodeProcessor::TimeBlock::deceleration_time() const
     return acceleration_time_from_distance(trapezoid.profile.cruise, (trapezoid.distance - trapezoid.decelerate_after), -acceleration);
 }
 
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 void GCodeProcessor::TimeEstimator::Statistics::reset()
 {
     max_blocks_count = 0;
 }
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 
 void GCodeProcessor::TimeEstimator::reset()
 {
@@ -545,7 +547,9 @@ void GCodeProcessor::TimeEstimator::reset()
 #else
     m_last_processed_block_id = -1;
 #endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     m_statistics.reset();
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     machine_limits = MachineLimits();
     curr_feedrates.reset();
     prev_feedrates.reset();
