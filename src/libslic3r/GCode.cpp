@@ -718,6 +718,7 @@ void GCode::do_export(Print *print, const char *path, GCodePreviewData *preview_
 #if ENABLE_GCODE_PROCESSOR
     m_processor.reset();
     m_processor.apply_config(print->config());
+    // for Silent mode, avoid overriding machine limits (set with the previous call to apply_config()) from the start gcode
     m_processor.enable_machine_limits_update_from_gcode(GCodeProcessor::Silent, false);
     m_processor.process_file(path_tmp);
 #endif // ENABLE_GCODE_PROCESSOR

@@ -256,7 +256,7 @@ namespace Slic3r {
             float m_time; // s
             std::vector<TimeBlock> m_blocks;
 #if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
-            unsigned int m_blocks_count;
+            unsigned int m_processed_blocks_count;
             std::vector<float> m_elapsed_times;
 #else
             int m_last_processed_block_id;
@@ -283,7 +283,7 @@ namespace Slic3r {
 #if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
             void append_block(const TimeBlock& block);
             float get_elapsed_time_at_block(unsigned int block_id) const { return (block_id < (unsigned int)m_elapsed_times.size()) ? m_elapsed_times[block_id] : 0.0f; }
-            unsigned int get_blocks_count() const { return m_blocks_count; }
+            unsigned int get_blocks_count() const { return m_processed_blocks_count + (unsigned int)m_blocks.size(); }
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
             const TimeBlock& get_last_block() const { return m_blocks.back(); }
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT

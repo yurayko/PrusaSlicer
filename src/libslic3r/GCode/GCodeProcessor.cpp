@@ -5,6 +5,8 @@
 #include <boost/log/trivial.hpp>
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 #include <boost/filesystem/path.hpp>
+#else
+#include <boost/nowide/fstream.hpp>
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 #include <float.h>
 
@@ -194,7 +196,7 @@ void GCodeParser::set_extrusion_axis_from_config(const GCodeConfig& config)
 
 bool GCodeParser::parse_file(const std::string& filename, Callback callback)
 {
-    std::ifstream f(filename);
+    boost::nowide::ifstream f(filename);
     if (!f.good())
     {
         BOOST_LOG_TRIVIAL(error) << "Could not open file: " << filename;
@@ -542,7 +544,7 @@ void GCodeProcessor::TimeEstimator::reset()
     m_time = 0.0f;
     m_blocks.clear();
 #if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
-    m_blocks_count = 0;
+    m_processed_blocks_count = 0;
     m_elapsed_times.clear();
 #else
     m_last_processed_block_id = -1;
@@ -581,7 +583,6 @@ void GCodeProcessor::TimeEstimator::append_block(const TimeBlock& block)
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     m_statistics.max_blocks_count = std::max(m_statistics.max_blocks_count, (unsigned int)m_blocks.size());
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
-    ++m_blocks_count;
 }
 #endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
 
@@ -623,6 +624,9 @@ void GCodeProcessor::TimeEstimator::calculate_time()
         m_elapsed_times.push_back(m_time);
     }
 
+    m_processed_blocks_count += (unsigned int)m_blocks.size();
+
+    // the current bunch of blocks have been processed, clear it
     m_blocks.clear();
     m_blocks.shrink_to_fit();
 #else
