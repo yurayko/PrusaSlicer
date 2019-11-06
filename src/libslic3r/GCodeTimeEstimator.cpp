@@ -5,7 +5,11 @@
 
 #include <Shiny/Shiny.h>
 
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+#include <boost/filesystem/path.hpp>
+#else
 #include <boost/nowide/fstream.hpp>
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 #include <boost/nowide/cstdio.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 
