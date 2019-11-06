@@ -2059,7 +2059,7 @@ void GCode::process_layer(
 #endif /* HAS_PRESSURE_EQUALIZER */
     
     _write(file, gcode);
-    BOOST_LOG_TRIVIAL(trace) << "Exported layer " << layer.id() << " print_z " << print_z << 
+    BOOST_LOG_TRIVIAL(trace) << "Exported layer " << layer.id() << " print_z " << print_z <<
         ", time estimator memory: " <<
             format_memsize_MB(m_normal_time_estimator.memory_used() + (m_silent_time_estimator_enabled ? m_silent_time_estimator.memory_used() : 0)) <<
         ", analyzer memory: " <<

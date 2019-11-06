@@ -193,7 +193,7 @@ namespace Slic3r {
             float acceleration;    // mm/s^2
             float max_entry_speed; // mm/s
             float safe_feedrate;   // mm/s
-            float elapsed_time;
+            float elapsed_time;    // s
 
             TimeBlock() { reset(); }
             void reset();
@@ -265,6 +265,9 @@ namespace Slic3r {
             // Returns the estimated time, in seconds
             float get_time() const { return m_time; }
 
+            // Return an estimate of the memory consumed by the time estimator
+            size_t memory_used() const;
+
         private:
             void recalculate_trapezoids();
         };
@@ -287,9 +290,19 @@ namespace Slic3r {
 
             AxesTuple start_position; // mm
             AxesTuple end_position;   // mm
+            int block_id;
+            float elapsed_time[Num_TimeEstimateModes]; // s
+            float remaining_time[Num_TimeEstimateModes]; // s
 
-            Move(EType type, const Metadata& data, const AxesTuple& start_position, const AxesTuple& end_position)
-                : type(type), data(data), start_position(start_position), end_position(end_position) {}
+            Move(EType type, const Metadata& data, const AxesTuple& start_position, const AxesTuple& end_position, int block_id)
+                : type(type), data(data), start_position(start_position), end_position(end_position), block_id(block_id)
+            {
+                for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+                {
+                    elapsed_time[i] = 0.0f;
+                    remaining_time[i] = 0.0f;
+                }
+            }
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
             std::string to_string() const;
@@ -363,6 +376,9 @@ namespace Slic3r {
 
         // Returns the estimated time, in seconds
         float get_time(ETimeEstimateMode mode) const { return m_time_estimators[mode].get_time(); }
+
+        // Return an estimate of the memory consumed by the processor
+        size_t memory_used() const;
 
     private:
         bool process_gcode_line(const GCodeLine& line);
@@ -552,7 +568,7 @@ namespace Slic3r {
         // Checks if the given int is a valid extrusion role (contained into enum ExtrusionRole)
         bool is_valid_extrusion_role(int value) const;
 
-        void store_move(Move::EType type);
+        void store_move(Move::EType type, int bolck_id = -1);
         void store_blocks(const std::vector<TimeBlock>& blocks);
     };
 

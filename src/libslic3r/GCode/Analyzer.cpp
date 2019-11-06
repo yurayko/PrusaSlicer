@@ -203,15 +203,10 @@ void GCodeAnalyzer::_process_gcode_line(GCodeReader&, const GCodeReader::GCodeLi
     // processes 'special' comments contained in line
     if (_process_tags(line))
     {
-#if ENABLE_GCODE_PROCESSOR
-        // DEBUG ONLY: puts the line back into the gcode
-        m_process_output += line.raw() + "\n";
-#else
 #if 0
         // DEBUG ONLY: puts the line back into the gcode
         m_process_output += line.raw() + "\n";
 #endif
-#endif // ENABLE_GCODE_PROCESSOR
         return;
     }
 
@@ -1013,7 +1008,7 @@ void GCodeAnalyzer::_calc_gcode_preview_extrusion_layers(GCodePreviewData& previ
 				GCodePreviewData::Extrusion::Path &path = paths.back();
                 path.polyline = polyline;
 				path.extrusion_role = data.extrusion_role;
-				path.mm3_per_mm = data.mm3_per_mm;
+				path.mm3_per_mm = (float)data.mm3_per_mm;
 				path.width = data.width;
 				path.height = data.height;
                 path.feedrate = data.feedrate;

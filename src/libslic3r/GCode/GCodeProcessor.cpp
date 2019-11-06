@@ -8,6 +8,10 @@
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 #include <fstream>
 
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+#include "Utils.hpp"
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+
 static const float MMMIN_TO_MMSEC = 1.0f / 60.0f;
 static const float INCHES_TO_MM = 25.4f;
 static const float MILLISEC_TO_SEC = 0.001f;
@@ -582,6 +586,13 @@ void GCodeProcessor::TimeEstimator::calculate_time()
     additional_time = 0.0f;
 }
 
+size_t GCodeProcessor::TimeEstimator::memory_used() const
+{
+    size_t out = sizeof(*this);
+    out += SLIC3R_STDVEC_MEMSIZE(this->m_blocks, TimeBlock);
+    return out;
+}
+
 void GCodeProcessor::TimeEstimator::recalculate_trapezoids()
 {
     TimeBlock* curr = nullptr;
@@ -780,15 +791,34 @@ bool GCodeProcessor::process_file(const std::string& filename)
     m_out_blocks_normal.open(blocks_normal_path.string());
     m_out_blocks_silent.open(blocks_silent_path.string());
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+
     bool res = m_parser.parse_file(filename, [this](const GCodeLine& line) { process_gcode_line(line); });
     if (res)
     {
         for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
         {
-            m_time_estimators[i].calculate_time();
+            TimeEstimator& estimator = m_time_estimators[i];
+            estimator.calculate_time();
+
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
-            std::cout << "GCode Estimated time " << i << ": " << m_time_estimators[i].get_time() << " sec" << std::endl;
+            std::cout << "GCode Estimated time " << i << ": " << estimator.get_time() << " sec" << std::endl;
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+
+            float final_time = estimator.get_time();
+            float elapsed_time = 0.0f;
+            float remaining_time = final_time;
+
+            for (Move& m : m_moves)
+            {
+                if (m.block_id >= 0)
+                {
+                    elapsed_time = estimator.get_block(m.block_id).elapsed_time;
+                    remaining_time = final_time - elapsed_time;
+                }
+
+                m.elapsed_time[i] = elapsed_time;
+                m.remaining_time[i] = remaining_time;
+            }
         }
     }
 
@@ -798,6 +828,17 @@ bool GCodeProcessor::process_file(const std::string& filename)
     m_out_blocks_silent.close();
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     return res;
+}
+
+size_t GCodeProcessor::memory_used() const
+{
+    size_t out = sizeof(*this);
+    out += SLIC3R_STDVEC_MEMSIZE(m_moves, Move);
+    for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
+    {
+        out += m_time_estimators[i].memory_used();
+    }
+    return out;
 }
 
 bool GCodeProcessor::process_gcode_line(const GCodeLine& line)
@@ -839,11 +880,7 @@ bool GCodeProcessor::process_gcode_line(const GCodeLine& line)
                 case 91: { return process_G91(line); }
                 // Set Position
                 case 92: { return process_G92(line); }
-                default:
-                    {
-                        BOOST_LOG_TRIVIAL(warning) << "Found unknown gcode command on line: " << line.raw();
-                        return true;
-                    }
+                default: { return true; }
                 }
                 break;
             }
@@ -885,11 +922,7 @@ bool GCodeProcessor::process_gcode_line(const GCodeLine& line)
                 case 566: { return process_M566(line); }
                 // Unload the current filament into the MK3 MMU2 unit at the end of print.
                 case 702: { return process_M702(line); }
-                default:
-                    {
-                        BOOST_LOG_TRIVIAL(warning) << "Found unknown gcode command on line: " << line.raw();
-                        return true;
-                    }
+                default: { return true; }
                 }
                 break;
             }
@@ -1003,7 +1036,6 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
         TimeFeedrates& prev = time_estimator.prev_feedrates;
         TimeBlock& block = blocks[i];
 
-//        block.reset();
         block.distance = distance;
 
         // calculates time-block feedrate
@@ -1142,8 +1174,12 @@ bool GCodeProcessor::process_G1(const GCodeLine& line)
     set_end_position(new_pos);
 
     // store the move and blocks
-    store_move(type);
+    store_move(type, (int)m_time_estimators[Normal].get_blocks_count() - 1);
     store_blocks(blocks);
+
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+    BOOST_LOG_TRIVIAL(trace) << "Processor memory: " << format_memsize_MB(memory_used()) << log_memory_info();
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 
     return true;
 }
@@ -1174,7 +1210,6 @@ bool GCodeProcessor::process_G10(const GCodeLine& line)
 {
     // stores retract move
     store_move(Move::Retract);
-
     return true;
 }
 
@@ -1182,7 +1217,6 @@ bool GCodeProcessor::process_G11(const GCodeLine& line)
 {
     // stores unretract move
     store_move(Move::Unretract);
-
     return true;
 }
 
@@ -1202,7 +1236,6 @@ bool GCodeProcessor::process_G22(const GCodeLine& line)
 {
     // stores retract move
     store_move(Move::Retract);
-
     return true;
 }
 
@@ -1210,7 +1243,6 @@ bool GCodeProcessor::process_G23(const GCodeLine& line)
 {
     // stores unretract move
     store_move(Move::Unretract);
-
     return true;
 }
 
@@ -1587,7 +1619,6 @@ bool GCodeProcessor::process_gcode_comment(const GCodeLine& line)
     if (pos != comment.npos)
         return process_color_change_tag();
 
-    BOOST_LOG_TRIVIAL(warning) << "Found unknown comment: " << comment;
     return false;
 }
 
@@ -1799,7 +1830,7 @@ bool GCodeProcessor::is_valid_extrusion_role(int value) const
     return ((int)erNone <= value) && (value <= (int)erMixed);
 }
 
-void GCodeProcessor::store_move(Move::EType type)
+void GCodeProcessor::store_move(Move::EType type, int block_id)
 {
     unsigned int extruder_id = get_extruder_id();
     extruder_id = (extruder_id == UNLOADED_EXTRUDER_ID) ? 0 : extruder_id;
@@ -1815,7 +1846,7 @@ void GCodeProcessor::store_move(Move::EType type)
     end_position[0] += (float)extruder_offset(0);
     end_position[1] += (float)extruder_offset(1);
 
-    m_moves.emplace_back(type, data, start_position, end_position);
+    m_moves.emplace_back(type, data, start_position, end_position, block_id);
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     if (m_out_moves.good())
