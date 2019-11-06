@@ -6,7 +6,7 @@
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 #include <boost/filesystem/path.hpp>
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
-#include <fstream>
+#include <float.h>
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 #include "Utils.hpp"
