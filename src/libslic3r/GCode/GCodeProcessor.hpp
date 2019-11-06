@@ -154,7 +154,9 @@ namespace Slic3r {
 
         struct TimeBlock
         {
+#if !ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
             static const TimeBlock Dummy;
+#endif // !ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
 
             struct FeedrateProfile
             {
@@ -193,7 +195,9 @@ namespace Slic3r {
             float acceleration;    // mm/s^2
             float max_entry_speed; // mm/s
             float safe_feedrate;   // mm/s
+#if !ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
             float elapsed_time;    // s
+#endif // !ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
 
             TimeBlock() { reset(); }
             void reset();
@@ -202,7 +206,7 @@ namespace Slic3r {
             void calculate_trapezoid();
 
             // Calculates this block's time
-            float calculate_time();
+            float calculate_time() const;
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
             std::string to_string() const;
@@ -236,10 +240,30 @@ namespace Slic3r {
 
         class TimeEstimator
         {
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+        public:
+            struct Statistics
+            {
+                unsigned int max_blocks_count;
+
+                Statistics() { reset(); }
+                void reset();
+            };
+
+        private:
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
             float m_acceleration; // mm/s^2
             float m_time; // s
             std::vector<TimeBlock> m_blocks;
+#if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+            unsigned int m_blocks_count;
+            std::vector<float> m_elapsed_times;
+#else
             int m_last_processed_block_id;
+#endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+            Statistics m_statistics;
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 
         public:
             MachineLimits machine_limits;
@@ -256,9 +280,18 @@ namespace Slic3r {
             void set_acceleration(float acceleration);
             void set_max_acceleration(float acceleration);
 
+#if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+            void append_block(const TimeBlock& block);
+            float get_elapsed_time_at_block(unsigned int block_id) const { return (block_id < (unsigned int)m_elapsed_times.size()) ? m_elapsed_times[block_id] : 0.0f; }
+            unsigned int get_blocks_count() const { return m_blocks_count; }
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+            const TimeBlock& get_last_block() const { return m_blocks.back(); }
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+#else
             void append_block(const TimeBlock& block) { m_blocks.push_back(block); }
             const TimeBlock& get_block(unsigned int id) const { return (id < (unsigned int)m_blocks.size()) ? m_blocks[id] : TimeBlock::Dummy; }
             unsigned int get_blocks_count() const { return (unsigned int)m_blocks.size(); }
+#endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
 
             void calculate_time();
 
@@ -267,6 +300,10 @@ namespace Slic3r {
 
             // Return an estimate of the memory consumed by the time estimator
             size_t memory_used() const;
+
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+            const Statistics& get_statistics() const { return m_statistics; }
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 
         private:
             void recalculate_trapezoids();

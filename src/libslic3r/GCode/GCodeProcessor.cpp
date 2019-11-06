@@ -402,7 +402,9 @@ void GCodeProcessor::TimeBlock::Flags::reset()
     nominal_length = false;
 }
 
+#if !ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
 const GCodeProcessor::TimeBlock GCodeProcessor::TimeBlock::Dummy = GCodeProcessor::TimeBlock();
+#endif // !ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
 
 void GCodeProcessor::TimeBlock::reset()
 {
@@ -414,7 +416,9 @@ void GCodeProcessor::TimeBlock::reset()
     acceleration = 0.0f;
     max_entry_speed = 0.0f;
     safe_feedrate = 0.0f;
+#if !ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
     elapsed_time = 0.0f;
+#endif // !ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
 }
 
 void GCodeProcessor::TimeBlock::calculate_trapezoid()
@@ -440,7 +444,7 @@ void GCodeProcessor::TimeBlock::calculate_trapezoid()
     trapezoid.decelerate_after = accelerate_distance + cruise_distance;
 }
 
-float GCodeProcessor::TimeBlock::calculate_time()
+float GCodeProcessor::TimeBlock::calculate_time() const
 {
     return acceleration_time() + cruise_time() + deceleration_time();
 }
@@ -525,12 +529,23 @@ float GCodeProcessor::TimeBlock::deceleration_time() const
     return acceleration_time_from_distance(trapezoid.profile.cruise, (trapezoid.distance - trapezoid.decelerate_after), -acceleration);
 }
 
+void GCodeProcessor::TimeEstimator::Statistics::reset()
+{
+    max_blocks_count = 0;
+}
+
 void GCodeProcessor::TimeEstimator::reset()
 {
     m_acceleration = 0.0f;
     m_time = 0.0f;
     m_blocks.clear();
+#if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+    m_blocks_count = 0;
+    m_elapsed_times.clear();
+#else
     m_last_processed_block_id = -1;
+#endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+    m_statistics.reset();
     machine_limits = MachineLimits();
     curr_feedrates.reset();
     prev_feedrates.reset();
@@ -555,8 +570,30 @@ void GCodeProcessor::TimeEstimator::set_max_acceleration(float acceleration)
         m_acceleration = acceleration;
 }
 
+#if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+void GCodeProcessor::TimeEstimator::append_block(const TimeBlock& block)
+{
+    m_blocks.push_back(block);
+#if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+    m_statistics.max_blocks_count = std::max(m_statistics.max_blocks_count, (unsigned int)m_blocks.size());
+#endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+    ++m_blocks_count;
+}
+#endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+
 void GCodeProcessor::TimeEstimator::calculate_time()
 {
+#if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+    for (int i = 0; i < (int)m_blocks.size() - 1; ++i)
+    {
+        TimeBlock::forward_pass_kernel(m_blocks[i], m_blocks[i + 1]);
+    }
+
+    for (int i = (int)m_blocks.size() - 1; i >= 1; --i)
+    {
+        TimeBlock::reverse_pass_kernel(m_blocks[i - 1], m_blocks[i]);
+    }
+#else
     for (int i = m_last_processed_block_id + 1; i < (int)m_blocks.size() - 1; ++i)
     {
         TimeBlock::forward_pass_kernel(m_blocks[i], m_blocks[i + 1]);
@@ -566,12 +603,25 @@ void GCodeProcessor::TimeEstimator::calculate_time()
     {
         TimeBlock::reverse_pass_kernel(m_blocks[i - 1], m_blocks[i]);
     }
+#endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
 
     recalculate_trapezoids();
 
     m_time += additional_time;
     color_times.cache += additional_time;
 
+#if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+    for (const TimeBlock& block : m_blocks)
+    {
+        float block_time = block.calculate_time();
+        m_time += block_time;
+        color_times.cache += block_time;
+        m_elapsed_times.push_back(m_time);
+    }
+
+    m_blocks.clear();
+    m_blocks.shrink_to_fit();
+#else
     for (int i = m_last_processed_block_id + 1; i < (int)m_blocks.size(); ++i)
     {
         TimeBlock& block = m_blocks[i];
@@ -582,6 +632,7 @@ void GCodeProcessor::TimeEstimator::calculate_time()
     }
 
     m_last_processed_block_id = (int)m_blocks.size() - 1;
+#endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
     // The additional time has been consumed (added to the total time), reset it to zero.
     additional_time = 0.0f;
 }
@@ -590,6 +641,7 @@ size_t GCodeProcessor::TimeEstimator::memory_used() const
 {
     size_t out = sizeof(*this);
     out += SLIC3R_STDVEC_MEMSIZE(this->m_blocks, TimeBlock);
+    out += SLIC3R_STDVEC_MEMSIZE(this->m_elapsed_times, float);
     return out;
 }
 
@@ -598,6 +650,27 @@ void GCodeProcessor::TimeEstimator::recalculate_trapezoids()
     TimeBlock* curr = nullptr;
     TimeBlock* next = nullptr;
 
+#if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+    for (TimeBlock& b : m_blocks)
+    {
+        curr = next;
+        next = &b;
+
+        if (curr != nullptr)
+        {
+            // Recalculate if current block entry or exit junction speed has changed.
+            if (curr->flags.recalculate || next->flags.recalculate)
+            {
+                // NOTE: Entry and exit factors always > 0 by all previous logic operations.
+                TimeBlock block = *curr;
+                block.profile.exit = next->profile.entry;
+                block.calculate_trapezoid();
+                curr->trapezoid = block.trapezoid;
+                curr->flags.recalculate = false; // Reset current only to ensure next trapezoid is computed
+            }
+        }
+    }
+#else
     for (int i = m_last_processed_block_id + 1; i < (int)m_blocks.size(); ++i)
     {
         TimeBlock& b = m_blocks[i];
@@ -619,6 +692,7 @@ void GCodeProcessor::TimeEstimator::recalculate_trapezoids()
             }
         }
     }
+#endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
 
     // Last/newest block in buffer. Always recalculated.
     if (next != nullptr)
@@ -801,7 +875,8 @@ bool GCodeProcessor::process_file(const std::string& filename)
             estimator.calculate_time();
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
-            std::cout << "GCode Estimated time " << i << ": " << estimator.get_time() << " sec" << std::endl;
+            std::cout << "GCodeProcessor " << i << " Estimated time: " << estimator.get_time() << " sec" << std::endl;
+            std::cout << "GCodeProcessor " << i << " Max blocks count: " << estimator.get_statistics().max_blocks_count << " sec" << std::endl;
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 
             float final_time = estimator.get_time();
@@ -812,7 +887,11 @@ bool GCodeProcessor::process_file(const std::string& filename)
             {
                 if (m.block_id >= 0)
                 {
+#if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+                    elapsed_time = estimator.get_elapsed_time_at_block(m.block_id);
+#else
                     elapsed_time = estimator.get_block(m.block_id).elapsed_time;
+#endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
                     remaining_time = final_time - elapsed_time;
                 }
 
@@ -1863,11 +1942,19 @@ void GCodeProcessor::store_blocks(const std::vector<TimeBlock>& blocks)
     }
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+#if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+    if (m_out_blocks_normal.good())
+        m_out_blocks_normal << m_time_estimators[Normal].get_last_block().to_string() << std::endl;
+
+    if (m_out_blocks_silent.good())
+        m_out_blocks_silent << m_time_estimators[Silent].get_last_block().to_string() << std::endl;
+#else
     if (m_out_blocks_normal.good())
         m_out_blocks_normal << m_time_estimators[Normal].get_block(m_time_estimators[Normal].get_blocks_count() - 1).to_string() << std::endl;
 
     if (m_out_blocks_silent.good())
         m_out_blocks_silent << m_time_estimators[Silent].get_block(m_time_estimators[Silent].get_blocks_count() - 1).to_string() << std::endl;
+#endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 }
 
