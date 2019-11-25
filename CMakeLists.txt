@@ -1,5 +1,5 @@
-project(PrusaSlicer)
 cmake_minimum_required(VERSION 3.2)
+project(PrusaSlicer)
 
 include("version.inc")
 include(GNUInstallDirs)
@@ -333,10 +333,10 @@ if (SLIC3R_STATIC)
     if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
         # As of now, our build system produces a statically linked libcurl,
         # which links the OpenSSL library dynamically.
-        find_package(OpenSSL REQUIRED)
-        message("OpenSSL include dir: ${OPENSSL_INCLUDE_DIR}")
-        message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
-        include_directories(${OPENSSL_INCLUDE_DIR})
+#        find_package(OpenSSL REQUIRED)
+#        message("OpenSSL include dir: ${OPENSSL_INCLUDE_DIR}")
+#        message("OpenSSL libraries: ${OPENSSL_LIBRARIES}")
+#        include_directories(${OPENSSL_INCLUDE_DIR})
     endif()
 endif()
 

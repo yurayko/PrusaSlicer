@@ -20,6 +20,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/BitmapCache.hpp
     GUI/ConfigSnapshotDialog.cpp
     GUI/ConfigSnapshotDialog.hpp
+    GUI/3DEngine.cpp
+    GUI/3DEngine.hpp
     GUI/3DScene.cpp
     GUI/3DScene.hpp
     GUI/GLShader.cpp

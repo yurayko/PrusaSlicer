@@ -6,8 +6,8 @@
 #include <libslic3r/Model.hpp>
 #include <libslic3r/Tesselate.hpp>
 #include <libslic3r/ClipperUtils.hpp>
-#include <libslic3r/SLA/SLAAutoSupports.hpp>
-#include <libslic3r/SLA/SLASupportTree.hpp>
+#include <libslic3r/SLA/SupportPointGenerator.hpp>
+#include <libslic3r/SLA/SupportTree.hpp>
 #include <libslic3r/SLAPrint.hpp>
 #include <libslic3r/MTUtils.hpp>
 

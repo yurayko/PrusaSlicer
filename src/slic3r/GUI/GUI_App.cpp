@@ -147,7 +147,8 @@ static void generic_exception_handle()
     }
 }
 
-IMPLEMENT_APP(GUI_App)
+wxIMPLEMENT_WX_THEME_SUPPORT
+wxIMPLEMENT_APP_NO_MAIN(GUI_App);
 
 GUI_App::GUI_App()
     : wxApp()
