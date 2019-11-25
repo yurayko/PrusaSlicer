@@ -298,7 +298,7 @@ if (IlmBase_FOUND AND NOT TARGET IlmBase::Half)
   message(STATUS "Falling back to IlmBase found by pkg-config...")
 
   find_library(IlmHalf_LIBRARY NAMES Half)
-  if(IlmHalf_LIBRARY-NOTFOUND OR NOT IlmBase_INCLUDE_DIRS)
+  if(NOT IlmHalf_LIBRARY OR NOT IlmBase_INCLUDE_DIRS)
     just_fail("IlmBase::Half can not be found!")
   endif()
   
