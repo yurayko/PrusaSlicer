@@ -41,6 +41,7 @@ class ObjectSettings;
 class ObjectLayers;
 class ObjectList;
 class GLCanvas3D;
+class Mouse3DController;
 
 using t_optgroups = std::vector <std::shared_ptr<ConfigOptionsGroup>>;
 
@@ -112,6 +113,7 @@ public:
     void                    update_objects_list_extruder_column(size_t extruders_count);
     void                    show_info_sizer();
     void                    show_sliced_info_sizer(const bool show);
+    void                    update_sliced_info_sizer();
     void                    enable_buttons(bool enable);
     void                    set_btn_label(const ActionButtonType btn_type, const wxString& label) const;
     bool                    show_reslice(bool show) const;
@@ -221,6 +223,7 @@ public:
     void on_activate();
     const DynamicPrintConfig* get_plater_config() const;
     std::vector<std::string> get_extruder_colors_from_plater_config() const;
+    std::vector<std::string> get_colors_for_color_print() const;
 
     void update_object_menu();
 
@@ -259,6 +262,8 @@ public:
     void msw_rescale();
 
     const Camera& get_camera() const;
+    const Mouse3DController& get_mouse3d_controller() const;
+    Mouse3DController& get_mouse3d_controller();
 
 	// ROII wrapper for suppressing the Undo / Redo snapshot to be taken.
 	class SuppressSnapshots

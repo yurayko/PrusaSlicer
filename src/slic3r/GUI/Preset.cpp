@@ -403,7 +403,7 @@ const std::vector<std::string>& Preset::print_options()
         "top_infill_extrusion_width", "support_material_extrusion_width", "infill_overlap", "bridge_flow_ratio", "clip_multipart_objects",
         "elefant_foot_compensation", "xy_size_compensation", "threads", "resolution", "wipe_tower", "wipe_tower_x", "wipe_tower_y",
         "wipe_tower_width", "wipe_tower_rotation_angle", "wipe_tower_bridging", "single_extruder_multi_material_priming",
-        "compatible_printers", "compatible_printers_condition", "inherits"
+        "wipe_tower_no_sparse_layers", "compatible_printers", "compatible_printers_condition", "inherits"
     };
     return s_opts;
 }
@@ -444,7 +444,8 @@ const std::vector<std::string>& Preset::printer_options()
             "machine_max_acceleration_x", "machine_max_acceleration_y", "machine_max_acceleration_z", "machine_max_acceleration_e",
             "machine_max_feedrate_x", "machine_max_feedrate_y", "machine_max_feedrate_z", "machine_max_feedrate_e",
             "machine_min_extruding_rate", "machine_min_travel_rate",
-            "machine_max_jerk_x", "machine_max_jerk_y", "machine_max_jerk_z", "machine_max_jerk_e"
+            "machine_max_jerk_x", "machine_max_jerk_y", "machine_max_jerk_z", "machine_max_jerk_e",
+            "thumbnails"
         };
         s_opts.insert(s_opts.end(), Preset::nozzle_options().begin(), Preset::nozzle_options().end());
     }
@@ -513,6 +514,10 @@ const std::vector<std::string>& Preset::sla_material_options()
         s_opts = {
             "material_type",
             "initial_layer_height",
+            "bottle_cost",
+            "bottle_volume",
+            "bottle_weight",
+            "material_density",
             "exposure_time",
             "initial_exposure_time",
             "material_correction",
@@ -805,6 +810,8 @@ void PresetCollection::save_current_preset(const std::string &new_name)
         preset.is_external = false;
         // The newly saved preset will be activated -> make it visible.
         preset.is_visible  = true;
+        // Just system presets have aliases
+        preset.alias.clear();
     }
     // 2) Activate the saved preset.
     this->select_preset_by_name(new_name, true);
@@ -898,6 +905,20 @@ const Preset* PresetCollection::get_preset_parent(const Preset& child) const
     return (preset == nullptr/* || preset->is_default */|| preset->is_external) ? nullptr : preset;
 }
 
+const std::string& PresetCollection::get_preset_name_by_alias(const std::string& alias) const
+{
+    for (size_t i = this->m_presets.front().is_visible ? 0 : m_num_default_presets; i < this->m_presets.size(); ++i) {
+        const Preset& preset = this->m_presets[i];
+        if (!preset.is_visible || (!preset.is_compatible && i != m_idx_selected))
+            continue;
+
+        if (preset.alias == alias)
+            return preset.name;
+    }
+
+    return alias;
+}
+
 const std::string& PresetCollection::get_suffix_modified() {
     return g_suffix_modified;
 }
@@ -973,7 +994,7 @@ void PresetCollection::update_platter_ui(GUI::PresetComboBox *ui)
     // Otherwise fill in the list from scratch.
     ui->Freeze();
     ui->Clear();
-    size_t selected_preset_item = 0;
+    size_t selected_preset_item = INT_MAX; // some value meaning that no one item is selected
 
     const Preset &selected_preset = this->get_selected_preset();
     // Show wide icons if the currently selected preset is not compatible with the current printer,
@@ -992,6 +1013,7 @@ void PresetCollection::update_platter_ui(GUI::PresetComboBox *ui)
 
     std::map<wxString, wxBitmap*> nonsys_presets;
     wxString selected = "";
+    wxString tooltip = "";
     if (!this->m_presets.front().is_visible)
         ui->set_label_marker(ui->Append(PresetCollection::separator(L("System presets")), wxNullBitmap));
     for (size_t i = this->m_presets.front().is_visible ? 0 : m_num_default_presets; i < this->m_presets.size(); ++ i) {
@@ -1020,17 +1042,24 @@ void PresetCollection::update_platter_ui(GUI::PresetComboBox *ui)
             bmp = m_bitmap_cache->insert(bitmap_key, bmps);
         }
 
+        const std::string name = preset.alias.empty() ? preset.name : preset.alias;
         if (preset.is_default || preset.is_system) {
-            ui->Append(wxString::FromUTF8((preset.name + (preset.is_dirty ? g_suffix_modified : "")).c_str()),
+            ui->Append(wxString::FromUTF8((/*preset.*/name + (preset.is_dirty ? g_suffix_modified : "")).c_str()),
                 (bmp == 0) ? (m_bitmap_main_frame ? *m_bitmap_main_frame : wxNullBitmap) : *bmp);
-            if (i == m_idx_selected)
+            if (i == m_idx_selected ||
+                // just in case: mark selected_preset_item as a first added element
+                selected_preset_item == INT_MAX) {
                 selected_preset_item = ui->GetCount() - 1;
+                tooltip = wxString::FromUTF8(preset.name.c_str());
+            }
         }
         else
         {
-            nonsys_presets.emplace(wxString::FromUTF8((preset.name + (preset.is_dirty ? g_suffix_modified : "")).c_str()), bmp/*preset.is_compatible*/);
-            if (i == m_idx_selected)
-                selected = wxString::FromUTF8((preset.name + (preset.is_dirty ? g_suffix_modified : "")).c_str());
+            nonsys_presets.emplace(wxString::FromUTF8((/*preset.*/name + (preset.is_dirty ? g_suffix_modified : "")).c_str()), bmp/*preset.is_compatible*/);
+            if (i == m_idx_selected) {
+                selected = wxString::FromUTF8((/*preset.*/name + (preset.is_dirty ? g_suffix_modified : "")).c_str());
+                tooltip = wxString::FromUTF8(preset.name.c_str());
+            }
         }
         if (i + 1 == m_num_default_presets)
             ui->set_label_marker(ui->Append(PresetCollection::separator(L("System presets")), wxNullBitmap));
@@ -1040,7 +1069,9 @@ void PresetCollection::update_platter_ui(GUI::PresetComboBox *ui)
         ui->set_label_marker(ui->Append(PresetCollection::separator(L("User presets")), wxNullBitmap));
         for (std::map<wxString, wxBitmap*>::iterator it = nonsys_presets.begin(); it != nonsys_presets.end(); ++it) {
             ui->Append(it->first, *it->second);
-            if (it->first == selected)
+            if (it->first == selected ||
+                // just in case: mark selected_preset_item as a first added element
+                selected_preset_item == INT_MAX)
                 selected_preset_item = ui->GetCount() - 1;
         }
     }
@@ -1071,8 +1102,15 @@ void PresetCollection::update_platter_ui(GUI::PresetComboBox *ui)
         ui->set_label_marker(ui->Append(PresetCollection::separator(L("Add/Remove materials")), wxNullBitmap), GUI::PresetComboBox::LABEL_ITEM_WIZARD_MATERIALS);
     }
 
+    /* But, if selected_preset_item is still equal to INT_MAX, it means that
+     * there is no presets added to the list.
+     * So, select last combobox item ("Add/Remove preset")
+     */
+    if (selected_preset_item == INT_MAX)
+        selected_preset_item = ui->GetCount() - 1;
+
     ui->SetSelection(selected_preset_item);
-    ui->SetToolTip(ui->GetString(selected_preset_item));
+    ui->SetToolTip(tooltip.IsEmpty() ? ui->GetString(selected_preset_item) : tooltip);
     ui->check_selection();
     ui->Thaw();
 
@@ -1087,7 +1125,7 @@ size_t PresetCollection::update_tab_ui(wxBitmapComboBox *ui, bool show_incompati
         return 0;
     ui->Freeze();
     ui->Clear();
-    size_t selected_preset_item = 0;
+    size_t selected_preset_item = INT_MAX; // some value meaning that no one item is selected
 
     /* It's supposed that standard size of an icon is 16px*16px for 100% scaled display.
     * So set sizes for solid_colored(empty) icons used for preset
@@ -1122,7 +1160,9 @@ size_t PresetCollection::update_tab_ui(wxBitmapComboBox *ui, bool show_incompati
         if (preset.is_default || preset.is_system) {
             ui->Append(wxString::FromUTF8((preset.name + (preset.is_dirty ? g_suffix_modified : "")).c_str()),
                 (bmp == 0) ? (m_bitmap_main_frame ? *m_bitmap_main_frame : wxNullBitmap) : *bmp);
-            if (i == m_idx_selected)
+            if (i == m_idx_selected ||
+                // just in case: mark selected_preset_item as a first added element
+                selected_preset_item == INT_MAX)
                 selected_preset_item = ui->GetCount() - 1;
         }
         else
@@ -1139,7 +1179,9 @@ size_t PresetCollection::update_tab_ui(wxBitmapComboBox *ui, bool show_incompati
         ui->Append(PresetCollection::separator(L("User presets")), wxNullBitmap);
         for (std::map<wxString, wxBitmap*>::iterator it = nonsys_presets.begin(); it != nonsys_presets.end(); ++it) {
             ui->Append(it->first, *it->second);
-            if (it->first == selected)
+            if (it->first == selected ||
+                // just in case: mark selected_preset_item as a first added element
+                selected_preset_item == INT_MAX)
                 selected_preset_item = ui->GetCount() - 1;
         }
     }
@@ -1154,6 +1196,14 @@ size_t PresetCollection::update_tab_ui(wxBitmapComboBox *ui, bool show_incompati
         }
         ui->Append(PresetCollection::separator("Add a new printer"), *bmp);
     }
+
+    /* But, if selected_preset_item is still equal to INT_MAX, it means that
+     * there is no presets added to the list.
+     * So, select last combobox item ("Add/Remove preset")
+     */
+    if (selected_preset_item == INT_MAX)
+        selected_preset_item = ui->GetCount() - 1;
+
     ui->SetSelection(selected_preset_item);
     ui->SetToolTip(ui->GetString(selected_preset_item));
     ui->Thaw();

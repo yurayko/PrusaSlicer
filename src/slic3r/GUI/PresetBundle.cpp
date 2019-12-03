@@ -96,6 +96,7 @@ PresetBundle::PresetBundle() :
         preset.config.optptr("printer_vendor", true);
         preset.config.optptr("printer_model", true);
         preset.config.optptr("printer_variant", true);
+		preset.config.optptr("thumbnails", true);
         if (i == 0) {
             preset.config.optptr("default_print_profile", true);
             preset.config.option<ConfigOptionStrings>("default_filament_profile", true)->values = { "" };
@@ -326,6 +327,20 @@ void PresetBundle::load_installed_printers(const AppConfig &config)
     for (auto &preset : printers) {
         preset.set_visible_from_appconfig(config);
     }
+}
+
+const std::string& PresetBundle::get_preset_name_by_alias( const Preset::Type& preset_type, const std::string& alias) const
+{
+    // there are not aliases for Printers profiles
+    if (preset_type == Preset::TYPE_PRINTER || preset_type == Preset::TYPE_INVALID)
+        return alias;
+
+    const PresetCollection& presets = preset_type == Preset::TYPE_PRINT     ? prints :
+                                      preset_type == Preset::TYPE_SLA_PRINT ? sla_prints :
+                                      preset_type == Preset::TYPE_FILAMENT  ? filaments :
+                                      sla_materials;
+
+    return presets.get_preset_name_by_alias(alias);
 }
 
 void PresetBundle::load_installed_filaments(AppConfig &config)
@@ -1121,6 +1136,7 @@ size_t PresetBundle::load_configbundle(const std::string &path, unsigned int fla
         PresetCollection         *presets = nullptr;
         std::vector<std::string> *loaded  = nullptr;
         std::string               preset_name;
+        std::string               alias_name;
         if (boost::starts_with(section.first, "print:")) {
             presets = &this->prints;
             loaded  = &loaded_prints;
@@ -1129,6 +1145,12 @@ size_t PresetBundle::load_configbundle(const std::string &path, unsigned int fla
             presets = &this->filaments;
             loaded  = &loaded_filaments;
             preset_name = section.first.substr(9);
+
+            for (const auto& item : section.second)
+                if (boost::starts_with(item.first, "alias")) {
+                    alias_name = item.second.data();
+                    break;
+                }
         } else if (boost::starts_with(section.first, "sla_print:")) {
             presets = &this->sla_prints;
             loaded  = &loaded_sla_prints;
@@ -1137,6 +1159,9 @@ size_t PresetBundle::load_configbundle(const std::string &path, unsigned int fla
             presets = &this->sla_materials;
             loaded  = &loaded_sla_materials;
             preset_name = section.first.substr(13);
+
+            int end_pos = preset_name.find_first_of("0.");
+            alias_name = preset_name.substr(0, end_pos-1);
         } else if (boost::starts_with(section.first, "printer:")) {
             presets = &this->printers;
             loaded  = &loaded_printers;
@@ -1282,6 +1307,14 @@ size_t PresetBundle::load_configbundle(const std::string &path, unsigned int fla
                 loaded.is_system = true;
                 loaded.vendor = vendor_profile;
             }
+
+            // next step of an preset name aliasing
+            int end_pos = preset_name.find_first_of("@");
+            if (end_pos != std::string::npos)
+                alias_name = preset_name.substr(0, end_pos - 1);
+
+            loaded.alias = alias_name.empty() ? preset_name : alias_name;
+
             ++ presets_loaded;
         }
     }
@@ -1537,7 +1570,8 @@ void PresetBundle::update_platter_filament_ui(unsigned int idx_extruder, GUI::Pr
     // Fill in the list from scratch.
     ui->Freeze();
     ui->Clear();
-	size_t selected_preset_item = 0;
+	size_t selected_preset_item = INT_MAX; // some value meaning that no one item is selected 
+
     const Preset *selected_preset = this->filaments.find_preset(this->filament_presets[idx_extruder]);
     // Show wide icons if the currently selected preset is not compatible with the current printer,
     // and draw a red flag in front of the selected preset.
@@ -1566,6 +1600,8 @@ void PresetBundle::update_platter_filament_ui(unsigned int idx_extruder, GUI::Pr
     // To avoid asserts, each added bitmap to wxBitmapCombobox should be the same size, so
     // set a bitmap height to m_bitmapLock->GetHeight()
     const int icon_height       = m_bitmapLock->GetHeight();//2 * icon_unit;    //16 * scale_f + 0.5f;
+
+    wxString tooltip = "";
 
 	for (int i = this->filaments().front().is_visible ? 0 : 1; i < int(this->filaments().size()); ++i) {
         const Preset &preset    = this->filaments.preset(i);
@@ -1607,18 +1643,25 @@ void PresetBundle::update_platter_filament_ui(unsigned int idx_extruder, GUI::Pr
             bitmap = m_bitmapCache->insert(bitmap_key, bmps);
 		}
 
-		if (preset.is_default || preset.is_system) {
-			ui->Append(wxString::FromUTF8((preset.name + (preset.is_dirty ? Preset::suffix_modified() : "")).c_str()), 
+        const std::string name = preset.alias.empty() ? preset.name : preset.alias;
+        if (preset.is_default || preset.is_system) {
+			ui->Append(wxString::FromUTF8((/*preset.*/name + (preset.is_dirty ? Preset::suffix_modified() : "")).c_str()), 
 				(bitmap == 0) ? wxNullBitmap : *bitmap);
-			if (selected)
+			if (selected ||
+                // just in case: mark selected_preset_item as a first added element
+                selected_preset_item == INT_MAX ) {
 				selected_preset_item = ui->GetCount() - 1;
+                tooltip = wxString::FromUTF8(preset.name.c_str());
+            }
 		}
 		else
 		{
-			nonsys_presets.emplace(wxString::FromUTF8((preset.name + (preset.is_dirty ? Preset::suffix_modified() : "")).c_str()), 
+			nonsys_presets.emplace(wxString::FromUTF8((/*preset.*/name + (preset.is_dirty ? Preset::suffix_modified() : "")).c_str()), 
 				(bitmap == 0) ? &wxNullBitmap : bitmap);
-			if (selected)
-				selected_str = wxString::FromUTF8((preset.name + (preset.is_dirty ? Preset::suffix_modified() : "")).c_str());
+			if (selected) {
+				selected_str = wxString::FromUTF8((/*preset.*/name + (preset.is_dirty ? Preset::suffix_modified() : "")).c_str());
+                tooltip = wxString::FromUTF8(preset.name.c_str());
+            }
 		}
 		if (preset.is_default)
             ui->set_label_marker(ui->Append(PresetCollection::separator(L("System presets")), wxNullBitmap));
@@ -1629,15 +1672,25 @@ void PresetBundle::update_platter_filament_ui(unsigned int idx_extruder, GUI::Pr
         ui->set_label_marker(ui->Append(PresetCollection::separator(L("User presets")), wxNullBitmap));
 		for (std::map<wxString, wxBitmap*>::iterator it = nonsys_presets.begin(); it != nonsys_presets.end(); ++it) {
 			ui->Append(it->first, *it->second);
-			if (it->first == selected_str)
+			if (it->first == selected_str ||
+                // just in case: mark selected_preset_item as a first added element
+                selected_preset_item == INT_MAX) {
 				selected_preset_item = ui->GetCount() - 1;
+			}
 		}
 	}
 
     ui->set_label_marker(ui->Append(PresetCollection::separator(L("Add/Remove filaments")), wxNullBitmap), GUI::PresetComboBox::LABEL_ITEM_WIZARD_FILAMENTS);
 
+    /* But, if selected_preset_item is still equal to INT_MAX, it means that
+     * there is no presets added to the list.
+     * So, select last combobox item ("Add/Remove filaments")
+     */
+    if (selected_preset_item == INT_MAX)
+        selected_preset_item = ui->GetCount() - 1;
+
 	ui->SetSelection(selected_preset_item);
-	ui->SetToolTip(ui->GetString(selected_preset_item));
+	ui->SetToolTip(tooltip.IsEmpty() ? ui->GetString(selected_preset_item) : tooltip);
     ui->check_selection();
     ui->Thaw();
 

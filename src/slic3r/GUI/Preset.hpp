@@ -148,6 +148,9 @@ public:
     // Configuration data, loaded from a file, or set from the defaults.
     DynamicPrintConfig  config;
 
+    // Alias of the preset
+    std::string         alias = "";
+
     void                save();
 
     // Return a label of this preset, consisting of a name and a "(modified)" suffix, if this preset is dirty.
@@ -325,6 +328,8 @@ public:
 	// Return the selected preset including the user modifications.
     Preset&         get_edited_preset()         { return m_edited_preset; }
     const Preset&   get_edited_preset() const   { return m_edited_preset; }
+
+    const std::string& get_preset_name_by_alias(const std::string& alias) const;
 
 	// used to update preset_choice from Tab
 	const std::deque<Preset>&	get_presets() const	{ return m_presets; }

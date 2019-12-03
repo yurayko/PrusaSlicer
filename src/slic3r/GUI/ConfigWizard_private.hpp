@@ -243,7 +243,9 @@ template<class T, class D> struct DataList : public T
 };
 
 typedef DataList<wxListBox, std::string> StringList;
-typedef DataList<wxCheckListBox, Preset> PresetList;
+// #ys_FIXME_alias
+//typedef DataList<wxCheckListBox, Preset> PresetList;
+typedef DataList<wxCheckListBox, std::string> PresetList;
 
 struct PageMaterials: ConfigWizardPage
 {
@@ -404,6 +406,8 @@ wxDEFINE_EVENT(EVT_INDEX_PAGE, wxCommandEvent);
 
 // ConfigWizard private data
 
+typedef std::map<std::string, std::set<std::string>> PresetAliases;
+
 struct ConfigWizard::priv
 {
     ConfigWizard *q;
@@ -415,6 +419,8 @@ struct ConfigWizard::priv
                                   // PrinterPickers state.
     Materials filaments;          // Holds available filament presets and their types & vendors
     Materials sla_materials;      // Ditto for SLA materials
+    PresetAliases aliases_fff;    // Map of aliase to preset names
+    PresetAliases aliases_sla;    // Map of aliase to preset names
     std::unique_ptr<DynamicPrintConfig> custom_config;           // Backing for custom printer definition
     bool any_fff_selected;        // Used to decide whether to display Filaments page
     bool any_sla_selected;        // Used to decide whether to display SLA Materials page
@@ -454,7 +460,6 @@ struct ConfigWizard::priv
         : q(q)
         , filaments(T_FFF)
         , sla_materials(T_SLA)
-        , any_sla_selected(false)
     {}
 
     void load_pages();
@@ -473,11 +478,11 @@ struct ConfigWizard::priv
     void on_3rdparty_install(const VendorProfile *vendor, bool install);
 
     void apply_config(AppConfig *app_config, PresetBundle *preset_bundle, const PresetUpdater *updater);
+    // #ys_FIXME_alise
+    void update_presets_in_config(const std::string& section, const std::string& alias_key, bool add);
 
     int em() const { return index->em(); }
 };
-
-
 
 }
 }

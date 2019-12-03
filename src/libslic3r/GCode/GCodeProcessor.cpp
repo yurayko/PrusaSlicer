@@ -43,6 +43,31 @@ std::string to_string(const Slic3r::GCodeProcessor::AxesTuple& position)
     return ret;
 }
 
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+>>>>>>> RESTART FROM HERE
+std::string format_time_dhms(float time_in_secs)
+{
+    int days = (int)(time_in_secs / 86400.0f);
+    time_in_secs -= (float)days * 86400.0f;
+    int hours = (int)(time_in_secs / 3600.0f);
+    time_in_secs -= (float)hours * 3600.0f;
+    int minutes = (int)(time_in_secs / 60.0f);
+    time_in_secs -= (float)minutes * 60.0f;
+
+    char buffer[64];
+    if (days > 0)
+        ::sprintf(buffer, "%dd %dh %dm %ds", days, hours, minutes, (int)time_in_secs);
+    else if (hours > 0)
+        ::sprintf(buffer, "%dh %dm %ds", hours, minutes, (int)time_in_secs);
+    else if (minutes > 0)
+        ::sprintf(buffer, "%dm %ds", minutes, (int)time_in_secs);
+    else
+        ::sprintf(buffer, "%ds", (int)time_in_secs);
+
+    return buffer;
+}
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
 namespace Slic3r {
 // Calculates the maximum allowable speed at this point when you must be able to reach target_velocity using the 
 // acceleration within the allotted distance.
@@ -446,10 +471,12 @@ void GCodeProcessor::TimeBlock::calculate_trapezoid()
     trapezoid.decelerate_after = accelerate_distance + cruise_distance;
 }
 
-float GCodeProcessor::TimeBlock::calculate_time() const
-{
-    return acceleration_time() + cruise_time() + deceleration_time();
-}
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+//float GCodeProcessor::TimeBlock::calculate_time() const
+//{
+//    return acceleration_time() + cruise_time() + deceleration_time();
+//}
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 std::string GCodeProcessor::TimeBlock::to_string() const
@@ -549,13 +576,18 @@ void GCodeProcessor::TimeEstimator::reset()
 #else
     m_last_processed_block_id = -1;
 #endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    m_color_times.reset();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     m_statistics.reset();
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
     machine_limits = MachineLimits();
     curr_feedrates.reset();
     prev_feedrates.reset();
-    color_times.reset();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+//    color_times.reset();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     additional_time = 0.0f;
 }
 
@@ -613,14 +645,23 @@ void GCodeProcessor::TimeEstimator::calculate_time()
     recalculate_trapezoids();
 
     m_time += additional_time;
-    color_times.cache += additional_time;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    m_color_times.cache += additional_time;
+//    color_times.cache += additional_time;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 #if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
     for (const TimeBlock& block : m_blocks)
     {
-        float block_time = block.calculate_time();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        float block_time = block.get_time();
+//        float block_time = block.calculate_time();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         m_time += block_time;
-        color_times.cache += block_time;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        m_color_times.cache += block_time;
+//        color_times.cache += block_time;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         m_elapsed_times.push_back(m_time);
     }
 
@@ -760,6 +801,9 @@ void GCodeProcessor::reset()
 {
     m_config = PrintConfig();
     m_config.gcode_flavor.value = gcfRepRap;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    m_enable_post_process = false;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     m_units = Millimeters;
     m_global_positioning_type = Absolute;
@@ -810,8 +854,6 @@ void GCodeProcessor::apply_config(const PrintConfig& config)
     const ConfigOptionStrings* extruders_opt = dynamic_cast<const ConfigOptionStrings*>(m_config.option("extruder_colour"));
     const ConfigOptionStrings* filamemts_opt = dynamic_cast<const ConfigOptionStrings*>(m_config.option("filament_colour"));
     set_extruders_count(std::max((unsigned int)extruders_opt->values.size(), (unsigned int)filamemts_opt->values.size()));
-
-//    set_extruder_id((get_extruders_count() > 0) ? -1 : 0);
 
     if (m_config.gcode_flavor.value == gcfMarlin)
     {
@@ -880,13 +922,17 @@ bool GCodeProcessor::process_file(const std::string& filename)
         for (int i = 0; i < (int)Num_TimeEstimateModes; ++i)
         {
             TimeEstimator& estimator = m_time_estimators[i];
-            estimator.calculate_time();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            if (estimator.get_unprocessed_blocks_count() > 0)
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+                estimator.calculate_time();
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
             std::cout << "GCodeProcessor " << i << " Estimated time: " << estimator.get_time() << " sec" << std::endl;
             std::cout << "GCodeProcessor " << i << " Max blocks count: " << estimator.get_statistics().max_blocks_count << " sec" << std::endl;
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 
+            // updates moves' times
             float final_time = estimator.get_time();
             float elapsed_time = 0.0f;
             float remaining_time = final_time;
@@ -914,8 +960,46 @@ bool GCodeProcessor::process_file(const std::string& filename)
     m_out_blocks_normal.close();
     m_out_blocks_silent.close();
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
+
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+    if (res)
+    {
+        if (m_enable_post_process)
+            res = post_process_file(filename);
+    }
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
     return res;
 }
+
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+std::string GCodeProcessor::get_time_as_dhms(ETimeEstimateMode mode) const
+{
+    return get_time_dhms(get_time(mode));
+}
+
+std::vector<std::string> GCodeProcessor::get_color_times_as_dhms(ETimeEstimateMode mode, bool include_remaining) const
+{
+    std::vector<std::string> ret;
+    const std::vector<float>& times = get_color_times(mode);
+    float final_time = get_time(mode);
+
+    float time = 0.0f;
+    for (float t : times)
+    {
+        std::string time_str = get_time_dhms(t);
+        if (include_remaining)
+        {
+            time_str += " (";
+            time_str += get_time_dhms(final_time - time);
+            time_str += ")";
+        }
+        time += t;
+        ret.push_back(time_str);
+    }
+    return ret;
+}
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 size_t GCodeProcessor::memory_used() const
 {
@@ -1965,6 +2049,13 @@ void GCodeProcessor::store_blocks(const std::vector<TimeBlock>& blocks)
 #endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 }
+
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+bool GCodeProcessor::post_process_file(const std::string& filename)
+{
+    return true;
+}
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 } /* namespace Slic3r */
 

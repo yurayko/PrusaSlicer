@@ -2,8 +2,8 @@
 #define slic3r_GCodeProcessor_hpp_
 
 #if ENABLE_GCODE_PROCESSOR
-#include "PrintConfig.hpp"
-#include "ExtrusionEntity.hpp"
+#include "../PrintConfig.hpp"
+#include "../ExtrusionEntity.hpp"
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
 #include <boost/nowide/fstream.hpp>
@@ -205,8 +205,10 @@ namespace Slic3r {
             // Calculates this block's trapezoid
             void calculate_trapezoid();
 
-            // Calculates this block's time
-            float calculate_time() const;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            float get_time() const { return acceleration_time() + cruise_time() + deceleration_time(); }
+//            float calculate_time() const;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
             std::string to_string() const;
@@ -261,6 +263,9 @@ namespace Slic3r {
 #else
             int m_last_processed_block_id;
 #endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            ColorTimes m_color_times;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
             Statistics m_statistics;
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
@@ -270,7 +275,9 @@ namespace Slic3r {
             TimeFeedrates curr_feedrates;
             TimeFeedrates prev_feedrates;
 
-            ColorTimes color_times;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+//            ColorTimes color_times;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
             float additional_time; // s
 
             TimeEstimator() { reset(); }
@@ -283,7 +290,12 @@ namespace Slic3r {
 #if ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
             void append_block(const TimeBlock& block);
             float get_elapsed_time_at_block(unsigned int block_id) const { return (block_id < (unsigned int)m_elapsed_times.size()) ? m_elapsed_times[block_id] : 0.0f; }
-            unsigned int get_blocks_count() const { return m_processed_blocks_count + (unsigned int)m_blocks.size(); }
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            unsigned int get_processed_blocks_count() const { return m_processed_blocks_count; }
+            unsigned int get_unprocessed_blocks_count() const { return (unsigned int)m_blocks.size(); }
+            unsigned int get_blocks_count() const { return get_processed_blocks_count() + get_unprocessed_blocks_count(); }
+//            unsigned int get_blocks_count() const { return m_processed_blocks_count + (unsigned int)m_blocks.size(); }
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 #if ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
             const TimeBlock& get_last_block() const { return m_blocks.back(); }
 #endif // ENABLE_GCODE_PROCESSOR_DEBUG_OUTPUT
@@ -292,6 +304,15 @@ namespace Slic3r {
             const TimeBlock& get_block(unsigned int id) const { return (id < (unsigned int)m_blocks.size()) ? m_blocks[id] : TimeBlock::Dummy; }
             unsigned int get_blocks_count() const { return (unsigned int)m_blocks.size(); }
 #endif // ENABLE_GCODE_PROCESSOR_DISCARD_BLOCKS_AFTER_USE
+
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            void enable_color_times(bool enable) { m_color_times.enabled = enable; }
+            float get_color_times_cache() const { return m_color_times.cache; }
+            void set_color_times_cache(float time) { m_color_times.cache = time; }
+            void store_current_color_times_cache() { m_color_times.store_current_cache(); }
+
+            const std::vector<float>& get_color_times() const { return m_color_times.times; }
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
             void calculate_time();
 
@@ -324,11 +345,10 @@ namespace Slic3r {
 
             EType type;
             Metadata data;
-
             AxesTuple start_position; // mm
             AxesTuple end_position;   // mm
             int block_id;
-            float elapsed_time[Num_TimeEstimateModes]; // s
+            float elapsed_time[Num_TimeEstimateModes];   // s
             float remaining_time[Num_TimeEstimateModes]; // s
 
             GCodeMove(EType type, const Metadata& data, const AxesTuple& start_position, const AxesTuple& end_position, int block_id)
@@ -357,6 +377,9 @@ namespace Slic3r {
 
         GCodeParser m_parser;
         PrintConfig m_config;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        bool m_enable_post_process;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         EUnits m_units;
         EPositioningType m_global_positioning_type;
         EPositioningType m_e_local_positioning_type;
@@ -389,6 +412,14 @@ namespace Slic3r {
 
         void reset();
 
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        void enable_post_process(bool enable) { m_enable_post_process = enable; }
+
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        void apply_config(const PrintConfig& config);
+//        void apply_config(const DynamicPrintConfig& config);
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
         GCodeFlavor get_gcode_flavor() const { return m_config.gcode_flavor; }
         void set_gcode_flavor(GCodeFlavor flavor) { m_config.gcode_flavor.value = flavor; }
 
@@ -398,8 +429,10 @@ namespace Slic3r {
         unsigned int get_extruders_count() const { return m_extruders_count; }
         void set_extruders_count(unsigned int count) { m_extruders_count = count; }
 
-        void apply_config(const PrintConfig& config);
-//        void apply_config(const DynamicPrintConfig& config);
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+//        void apply_config(const PrintConfig& config);
+////        void apply_config(const DynamicPrintConfig& config);
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         const MachineLimits& get_machine_limits(ETimeEstimateMode mode) const { return m_time_estimators[mode].machine_limits; }
         void set_machine_limits(ETimeEstimateMode mode, const MachineLimits& limits) { m_time_estimators[mode].machine_limits = limits; }
@@ -413,6 +446,18 @@ namespace Slic3r {
 
         // Returns the estimated time, in seconds
         float get_time(ETimeEstimateMode mode) const { return m_time_estimators[mode].get_time(); }
+
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        // Returns the estimated time, in format DDd HHh MMm SSs
+        std::string get_time_as_dhms(ETimeEstimateMode mode) const;
+
+        // Returns the estimated time, in seconds, for each color
+        const std::vector<float>& get_color_times(ETimeEstimateMode mode) const { return m_time_estimators[mode].get_color_times(); }
+
+        // Returns the estimated time, in format DDd HHh MMm SSs, for each color
+        // If include_remaining==true the strings will be formatted as: "time for color (remaining time at color start)"
+        std::vector<std::string> get_color_times_as_dhms(ETimeEstimateMode mode, bool include_remaining) const;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         // Return an estimate of the memory consumed by the processor
         size_t memory_used() const;
@@ -597,16 +642,27 @@ namespace Slic3r {
         float get_repetier_store_feedrate() const { return m_repetier_store.feedrate; }
         void set_repetier_store_feedrate(float feedrate) { m_repetier_store.feedrate = feedrate; }
 
-        void enable_color_times(ETimeEstimateMode mode, bool enable) { m_time_estimators[mode].color_times.enabled = enable; }
-        float get_color_times_cache(ETimeEstimateMode mode) const { return m_time_estimators[mode].color_times.cache; }
-        void set_color_times_cache(ETimeEstimateMode mode, float time) { m_time_estimators[mode].color_times.cache = time; }
-        void store_current_color_times_cache(ETimeEstimateMode mode) { m_time_estimators[mode].color_times.store_current_cache(); }
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        void enable_color_times(ETimeEstimateMode mode, bool enable) { m_time_estimators[mode].enable_color_times(enable); }
+        float get_color_times_cache(ETimeEstimateMode mode) const { return m_time_estimators[mode].get_color_times_cache(); }
+        void set_color_times_cache(ETimeEstimateMode mode, float time) { m_time_estimators[mode].set_color_times_cache(time); }
+        void store_current_color_times_cache(ETimeEstimateMode mode) { m_time_estimators[mode].store_current_color_times_cache(); }
+//        void enable_color_times(ETimeEstimateMode mode, bool enable) { m_time_estimators[mode].color_times.enabled = enable; }
+//        float get_color_times_cache(ETimeEstimateMode mode) const { return m_time_estimators[mode].color_times.cache; }
+//        void set_color_times_cache(ETimeEstimateMode mode, float time) { m_time_estimators[mode].color_times.cache = time; }
+//        void store_current_color_times_cache(ETimeEstimateMode mode) { m_time_estimators[mode].color_times.store_current_cache(); }
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         // Checks if the given int is a valid extrusion role (contained into enum ExtrusionRole)
         bool is_valid_extrusion_role(int value) const;
 
         void store_move(GCodeMove::EType type, int bolck_id = -1);
         void store_blocks(const std::vector<TimeBlock>& blocks);
+
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        // Modifies the gcode contained in the file with the given filename, according to the data extracted by the process_file() method
+        bool post_process_file(const std::string& filename);
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     };
 
 } /* namespace Slic3r */

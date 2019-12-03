@@ -166,6 +166,8 @@ PrinterPicker::PrinterPicker(wxWindow *parent, const VendorProfile &vendor, wxSt
     int max_row_width = 0;
     int current_row_width = 0;
 
+    bool is_variants = false;
+
     for (const auto &model : models) {
         if (! filter(model)) { continue; }
 
@@ -220,6 +222,7 @@ PrinterPicker::PrinterPicker(wxWindow *parent, const VendorProfile &vendor, wxSt
                 auto *alt_label = new wxStaticText(variants_panel, wxID_ANY, _(L("Alternate nozzles:")));
                 alt_label->SetFont(font_alt_nozzle);
                 variants_sizer->Add(alt_label, 0, wxBOTTOM, 3);
+                is_variants = true;
             }
 
             auto *cbox = new Checkbox(variants_panel, label, model_id, variant.name);
@@ -280,10 +283,10 @@ PrinterPicker::PrinterPicker(wxWindow *parent, const VendorProfile &vendor, wxSt
     }
     title_sizer->AddStretchSpacer();
 
-    if (titles.size() > 1) {
+    if (/*titles.size() > 1*/is_variants) {
         // It only makes sense to add the All / None buttons if there's multiple printers
 
-        auto *sel_all_std = new wxButton(this, wxID_ANY, _(L("All standard")));
+        auto *sel_all_std = new wxButton(this, wxID_ANY, titles.size() > 1 ? _(L("All standard")) : _(L("Standard")));
         auto *sel_all = new wxButton(this, wxID_ANY, _(L("All")));
         auto *sel_none = new wxButton(this, wxID_ANY, _(L("None")));
         sel_all_std->Bind(wxEVT_BUTTON, [this](const wxCommandEvent &event) { this->select_all(true, false); });
@@ -371,7 +374,7 @@ ConfigWizardPage::ConfigWizardPage(ConfigWizard *parent, wxString title, wxStrin
     sizer->AddSpacer(10);
 
     content = new wxBoxSizer(wxVERTICAL);
-    sizer->Add(content, 1);
+    sizer->Add(content, 1, wxEXPAND);
 
     SetSizer(sizer);
 
@@ -525,15 +528,17 @@ PageMaterials::PageMaterials(ConfigWizard *parent, Materials *materials, wxStrin
     list_l2->SetMinSize(wxSize(13*em, list_h));
     list_l3->SetMinSize(wxSize(25*em, list_h));
 
-    auto *grid = new wxFlexGridSizer(3, 0, em);
+    auto *grid = new wxFlexGridSizer(3, em/2, em);
+    grid->AddGrowableCol(2, 1);
+    grid->AddGrowableRow(1, 1);
 
     grid->Add(new wxStaticText(this, wxID_ANY, list1name));
     grid->Add(new wxStaticText(this, wxID_ANY, _(L("Vendor:"))));
     grid->Add(new wxStaticText(this, wxID_ANY, _(L("Profile:"))));
 
-    grid->Add(list_l1);
-    grid->Add(list_l2);
-    grid->Add(list_l3);
+    grid->Add(list_l1, 0, wxEXPAND);
+    grid->Add(list_l2, 0, wxEXPAND);
+    grid->Add(list_l3, 1, wxEXPAND);
 
     auto *btn_sizer = new wxBoxSizer(wxHORIZONTAL);
     auto *sel_all = new wxButton(this, wxID_ANY, _(L("All")));
@@ -545,7 +550,7 @@ PageMaterials::PageMaterials(ConfigWizard *parent, Materials *materials, wxStrin
     grid->Add(new wxBoxSizer(wxHORIZONTAL));
     grid->Add(btn_sizer, 0, wxALIGN_RIGHT);
 
-    append(grid);
+    append(grid, 1, wxEXPAND);
 
     list_l1->Bind(wxEVT_LISTBOX, [this](wxCommandEvent &) {
         update_lists(list_l1->GetSelection(), list_l2->GetSelection());
@@ -623,7 +628,13 @@ void PageMaterials::update_lists(int sel1, int sel2)
             const std::string &vendor = list_l2->get_data(sel2);
 
             materials->filter_presets(type, vendor, [this](const Preset *p) {
-                const int i = list_l3->append(p->name, p);
+                // #ys_FIXME_alias
+                // const int i = list_l3->append(p->name, p);
+
+                if (list_l3->find(p->alias) != wxNOT_FOUND)
+                    return;
+                const int i = list_l3->append(p->alias, &p->alias);
+
                 const bool checked = wizard_p()->appconfig_new.has(materials->appconfig_section(), p->name);
                 list_l3->Check(i, checked);
             });
@@ -636,13 +647,16 @@ void PageMaterials::update_lists(int sel1, int sel2)
 void PageMaterials::select_material(int i)
 {
     const bool checked = list_l3->IsChecked(i);
-    const Preset &preset = list_l3->get_data(i);
+    // #ys_FIXME_aliases
+    // const Preset &preset = list_l3->get_data(i);
+    // if (checked) {
+    //     wizard_p()->appconfig_new.set(materials->appconfig_section(), preset.name, "1");
+    // } else {
+    //     wizard_p()->appconfig_new.erase(materials->appconfig_section(), preset.name);
+    // }
 
-    if (checked) {
-        wizard_p()->appconfig_new.set(materials->appconfig_section(), preset.name, "1");
-    } else {
-        wizard_p()->appconfig_new.erase(materials->appconfig_section(), preset.name);
-    }
+    const std::string& alias_key = list_l3->get_data(i);
+    wizard_p()->update_presets_in_config(materials->appconfig_section(), alias_key, checked);
 }
 
 void PageMaterials::select_all(bool select)
@@ -774,10 +788,16 @@ void PageMode::on_activate()
 
 void PageMode::serialize_mode(AppConfig *app_config) const
 {
-    const char *mode = "simple";
+    std::string mode = "";
 
+    if (radio_simple->GetValue()) { mode = "simple"; }
     if (radio_advanced->GetValue()) { mode = "advanced"; }
     if (radio_expert->GetValue()) { mode = "expert"; }
+
+    // If "Mode" page wasn't selected (no one radiobutton is checked),
+    // we shouldn't to update a view_mode value in app_config
+    if (mode.empty())
+        return; 
 
     app_config->set("view_mode", mode);
 }
@@ -1381,8 +1401,6 @@ void ConfigWizard::priv::load_vendors()
         pair.second.preset_bundle->load_installed_printers(appconfig_new);
     }
 
-    update_materials(T_ANY);
-
     if (app_config->has_section(AppConfig::SECTION_FILAMENTS)) {
         appconfig_new.set_section(AppConfig::SECTION_FILAMENTS, app_config->get_section(AppConfig::SECTION_FILAMENTS));
     }
@@ -1393,7 +1411,8 @@ void ConfigWizard::priv::load_vendors()
 
 void ConfigWizard::priv::add_page(ConfigWizardPage *page)
 {
-    hscroll_sizer->Add(page, 0, wxEXPAND);
+    const int proportion = (page->shortname == _(L("Filaments"))) || (page->shortname == _(L("SLA Materials"))) ? 1 : 0;
+    hscroll_sizer->Add(page, proportion, wxEXPAND);
     all_pages.push_back(page);
 }
 
@@ -1406,10 +1425,22 @@ void ConfigWizard::priv::enable_next(bool enable)
 void ConfigWizard::priv::set_start_page(ConfigWizard::StartPage start_page)
 {
     switch (start_page) {
-        case ConfigWizard::SP_PRINTERS: index->go_to(page_fff); break;
-        case ConfigWizard::SP_FILAMENTS: index->go_to(page_filaments); break;
-        case ConfigWizard::SP_MATERIALS: index->go_to(page_sla_materials); break;
-        default: index->go_to(page_welcome); break;
+        case ConfigWizard::SP_PRINTERS: 
+            index->go_to(page_fff); 
+            btn_next->SetFocus();
+            break;
+        case ConfigWizard::SP_FILAMENTS:
+            index->go_to(page_filaments);
+            btn_finish->SetFocus();
+            break;
+        case ConfigWizard::SP_MATERIALS:
+            index->go_to(page_sla_materials);
+            btn_finish->SetFocus();
+            break;
+        default:
+            index->go_to(page_welcome);
+            btn_next->SetFocus();
+            break;
     }
 }
 
@@ -1438,6 +1469,7 @@ void ConfigWizard::priv::update_materials(Technology technology)
 {
     if (any_fff_selected && (technology & T_FFF)) {
         filaments.clear();
+        aliases_fff.clear();
     
         // Iterate filaments in all bundles
         for (const auto &pair : bundles) {
@@ -1455,6 +1487,8 @@ void ConfigWizard::priv::update_materials(Technology technology)
 
                         if (filament.is_compatible_with_printer(printer)) {
                             filaments.push(&filament);
+                            if (!filament.alias.empty())
+                                aliases_fff[filament.alias].insert(filament.name);
                         }
                     }
                 }
@@ -1464,6 +1498,7 @@ void ConfigWizard::priv::update_materials(Technology technology)
 
     if (any_sla_selected && (technology & T_SLA)) {
         sla_materials.clear();
+        aliases_sla.clear();
 
         // Iterate SLA materials in all bundles
         for (const auto &pair : bundles) {
@@ -1481,6 +1516,8 @@ void ConfigWizard::priv::update_materials(Technology technology)
 
                         if (material.is_compatible_with_printer(printer)) {
                             sla_materials.push(&material);
+                            if (!material.alias.empty())
+                                aliases_sla[material.alias].insert(material.name);
                         }
                     }
                 }
@@ -1663,6 +1700,24 @@ void ConfigWizard::priv::apply_config(AppConfig *app_config, PresetBundle *prese
     preset_bundle->export_selections(*app_config);
 }
 
+void ConfigWizard::priv::update_presets_in_config(const std::string& section, const std::string& alias_key, bool add)
+{
+    const PresetAliases& aliases = section == AppConfig::SECTION_FILAMENTS ? aliases_fff : aliases_sla;
+
+    auto update = [this, add](const std::string& s, const std::string& key) {
+        if (add)
+            appconfig_new.set(s, key, "1");
+        else
+            appconfig_new.erase(s, key); 
+    };
+
+    // add or delete presets had a same alias 
+    auto it = aliases.find(alias_key);
+    if (it != aliases.end())
+        for (const std::string& name : it->second)
+            update(section, name);
+}
+
 
 // Public
 
@@ -1719,6 +1774,11 @@ ConfigWizard::ConfigWizard(wxWindow *parent)
     p->page_msla = new PagePrinters(this, _(L("Prusa MSLA Technology Printers")), "Prusa MSLA", *vendor_prusa, 0, T_SLA);
     p->add_page(p->page_msla);
 
+    p->any_sla_selected = p->page_msla->any_selected();
+    p->any_fff_selected = p->page_fff->any_selected();
+
+    p->update_materials(T_ANY);
+
     p->add_page(p->page_filaments = new PageMaterials(this, &p->filaments,
         _(L("Filament Profiles Selection")), _(L("Filaments")), _(L("Type:")) ));
     p->add_page(p->page_sla_materials = new PageMaterials(this, &p->sla_materials,
@@ -1735,9 +1795,6 @@ ConfigWizard::ConfigWizard(wxWindow *parent)
     // Pages for 3rd party vendors
     p->create_3rdparty_pages();   // Needs to ne done _before_ creating PageVendors
     p->add_page(p->page_vendors = new PageVendors(this));
-
-    p->any_sla_selected = p->page_msla->any_selected();
-    p->any_fff_selected = p->page_fff->any_selected();
 
     p->load_pages();
     p->index->go_to(size_t{0});
@@ -1759,7 +1816,7 @@ ConfigWizard::ConfigWizard(wxWindow *parent)
     p->btn_prev->Bind(wxEVT_BUTTON, [this](const wxCommandEvent &) { this->p->index->go_prev(); });
     p->btn_next->Bind(wxEVT_BUTTON, [this](const wxCommandEvent &) { this->p->index->go_next(); });
     p->btn_finish->Bind(wxEVT_BUTTON, [this](const wxCommandEvent &) { this->EndModal(wxID_OK); });
-    p->btn_finish->Hide();
+//    p->btn_finish->Hide();
 
     p->btn_sel_all->Bind(wxEVT_BUTTON, [this](const wxCommandEvent &) {
         p->any_sla_selected = true;
@@ -1772,7 +1829,9 @@ ConfigWizard::ConfigWizard(wxWindow *parent)
     p->index->Bind(EVT_INDEX_PAGE, [this](const wxCommandEvent &) {
         const bool is_last = p->index->active_is_last();
         p->btn_next->Show(! is_last);
-        p->btn_finish->Show(is_last);
+//        p->btn_finish->Show(is_last);
+        if (is_last)
+            p->btn_finish->SetFocus();
 
         Layout();
     });

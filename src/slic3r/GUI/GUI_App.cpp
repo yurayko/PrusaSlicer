@@ -51,6 +51,11 @@
 #include <Shlobj.h>
 #endif // __WXMSW__
 
+#if ENABLE_THUMBNAIL_GENERATOR_DEBUG
+#include <boost/beast/core/detail/base64.hpp>
+#include <boost/nowide/fstream.hpp>
+#endif // ENABLE_THUMBNAIL_GENERATOR_DEBUG
+
 namespace Slic3r {
 namespace GUI {
 
@@ -100,7 +105,7 @@ static void register_dpi_event()
         const auto rect = reinterpret_cast<PRECT>(lParam);
         const wxRect wxrect(wxPoint(rect->top, rect->left), wxPoint(rect->bottom, rect->right));
 
-        DpiChangedEvent evt(EVT_DPI_CHANGED, dpi, wxrect);
+        DpiChangedEvent evt(EVT_DPI_CHANGED_SLICER, dpi, wxrect);
         win->GetEventHandler()->AddPendingEvent(evt);
 
         return true;
@@ -1081,6 +1086,72 @@ bool GUI_App::run_wizard(ConfigWizard::RunReason reason, ConfigWizard::StartPage
 
     return res;
 }
+
+#if ENABLE_THUMBNAIL_GENERATOR_DEBUG
+void GUI_App::gcode_thumbnails_debug()
+{
+    const std::string BEGIN_MASK = "; thumbnail begin";
+    const std::string END_MASK = "; thumbnail end";
+    std::string gcode_line;
+    bool reading_image = false;
+    unsigned int width = 0;
+    unsigned int height = 0;
+
+    wxFileDialog dialog(GetTopWindow(), _(L("Select a gcode file:")), "", "", "G-code files (*.gcode)|*.gcode;*.GCODE;", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+    if (dialog.ShowModal() != wxID_OK)
+        return;
+
+    std::string in_filename = into_u8(dialog.GetPath());
+    std::string out_path = boost::filesystem::path(in_filename).remove_filename().append(L"thumbnail").string();
+
+    boost::nowide::ifstream in_file(in_filename.c_str());
+    std::vector<std::string> rows;
+    std::string row;
+    if (in_file.good())
+    {
+        while (std::getline(in_file, gcode_line))
+        {
+            if (in_file.good())
+            {
+                if (boost::starts_with(gcode_line, BEGIN_MASK))
+                {
+                    reading_image = true;
+                    gcode_line = gcode_line.substr(BEGIN_MASK.length() + 1);
+                    std::string::size_type x_pos = gcode_line.find('x');
+                    std::string width_str = gcode_line.substr(0, x_pos);
+                    width = (unsigned int)::atoi(width_str.c_str());
+                    std::string height_str = gcode_line.substr(x_pos + 1);
+                    height = (unsigned int)::atoi(height_str.c_str());
+                    row.clear();
+                }
+                else if (reading_image && boost::starts_with(gcode_line, END_MASK))
+                {
+                    std::string out_filename = out_path + std::to_string(width) + "x" + std::to_string(height) + ".png";
+                    boost::nowide::ofstream out_file(out_filename.c_str(), std::ios::binary);
+                    if (out_file.good())
+                    {
+                        std::string decoded;
+                        decoded.resize(boost::beast::detail::base64::decoded_size(row.size()));
+                        decoded.resize(boost::beast::detail::base64::decode((void*)&decoded[0], row.data(), row.size()).first);
+
+                        out_file.write(decoded.c_str(), decoded.size());
+                        out_file.close();
+                    }
+
+                    reading_image = false;
+                    width = 0;
+                    height = 0;
+                    rows.clear();
+                }
+                else if (reading_image)
+                    row += gcode_line.substr(2);
+            }
+        }
+
+        in_file.close();
+    }
+}
+#endif // ENABLE_THUMBNAIL_GENERATOR_DEBUG
 
 void GUI_App::window_pos_save(wxTopLevelWindow* window, const std::string &name)
 {
