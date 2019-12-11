@@ -2929,7 +2929,7 @@ bool Tab::may_discard_current_dirty_preset(PresetCollection* presets /*= nullptr
 		const Preset& old_preset = presets->get_edited_preset();
 		std::string   type_name = presets->name();
 
-		 std::string header = (old_preset.is_default ?
+         wxString header = (old_preset.is_default ?
 			wxString::Format(_(L("Default preset (%s)")), _(type_name)) :
 			wxString::Format(_(L("Preset (%s)")), _(type_name))) + " \"" + old_preset.name + "\" ";
 

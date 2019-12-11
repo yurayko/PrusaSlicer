@@ -12,7 +12,12 @@
 #include <wx/sizer.h>
 #include <wx/slider.h>
 #include <wx/menu.h>
+
+// FIXME: this is probably exactly what wxWidgets authors wanted to avoid.
+// See the stattextg.h for details.
+#include <wx/stattext.h>
 #include <wx/generic/stattextg.h>
+
 #include <wx/wx.h>
 
 #include <vector>

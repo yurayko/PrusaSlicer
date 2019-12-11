@@ -10,6 +10,7 @@
 #include "libslic3r.h"
 
 namespace boost { namespace filesystem { class directory_entry; }}
+namespace boost { namespace filesystem { class path; }}
 
 namespace Slic3r {
 

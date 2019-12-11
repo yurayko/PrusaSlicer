@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <string>
 #include <iostream>
+#include <cstring>
+#include <sstream>
 
 #ifdef _DEBUG
 #include <algorithm>
@@ -11,6 +13,20 @@
 #define MAXCOST 100
 
 namespace slic3r {
+
+    // Definitions of static const class members:
+    const int Diff::EditScript::Action::Type::nil;
+    const int Diff::EditScript::Action::Type::baseTypeMask;
+    const int Diff::EditScript::Action::Type::lineBreakType;
+
+    const int Diff::EditScript::Action::Type::keep;
+    const int Diff::EditScript::Action::Type::remove;
+    const int Diff::EditScript::Action::Type::insert;
+
+    const int Diff::EditScript::Action::Type::lineBreak;
+    const int Diff::EditScript::Action::Type::remove_lineBreak;
+    const int Diff::EditScript::Action::Type::insert_lineBreak;
+
 	struct Point {
 		int x = 0;
 		int y = 0;
@@ -59,11 +75,11 @@ namespace slic3r {
 
 			vals = new progress_val[size];
 			absLower = _val.absLower;
-			memcpy_s(vals, size * sizeof(progress_val), _val.vals, size * sizeof(progress_val));
+            memcpy(vals, _val.vals, size * sizeof(progress_val));
 		}
 
 		npArray(const npArray& _val, int lower, int upper) : npArray(lower, upper) {
-			memcpy_s(vals, size * sizeof(progress_val), &(_val.vals[lower + _val.absLower]), size * sizeof(progress_val));
+            memcpy(vals, &(_val.vals[lower + _val.absLower]), size * sizeof(progress_val));
 		}
 
 		~npArray() {

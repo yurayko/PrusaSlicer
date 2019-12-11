@@ -391,14 +391,11 @@ namespace Slic3r {
 
 			int itemCount = 0;
 			for (Tab* cur_tab : m_tabs) {
-				std::string title = cur_tab->title();
+                wxString title = cur_tab->title();
 
-				if (dirty_tabs.empty()) {
-					dirty_tabs = title;
-				}
-				else {
-					dirty_tabs += wxString(", ") + title;
-				}
+                if (! dirty_tabs.empty())
+                    dirty_tabs += wxString(", ");
+                dirty_tabs += title;
 
 				wxPanel* cur_tab_win = new wxPanel(m_scroller, wxID_ANY);
 				wxBoxSizer* cur_tab_sizer = new wxBoxSizer(wxVERTICAL);
@@ -932,8 +929,8 @@ namespace Slic3r {
 
 			std::string cur_line;
 
-			wxColour* col_rem = &wxColour(255, 75, 75);
-			wxColour* col_ins = &wxColour(75, 255, 75);
+            wxColour col_rem(255, 75, 75);
+            wxColour col_ins(75, 255, 75);
 
 			for (const Diff::EditScript::Action& cur_action : editScript.actions) {
 				std::string sub;
@@ -949,13 +946,13 @@ namespace Slic3r {
 					}
 					case Diff::EditScript::Action::Type::remove: {
 						sub = old_val.substr(cur_action.offset, cur_action.count);
-						color = col_rem;
+                        color = &col_rem;
 						useColor = true;
 						break;
 					}
 					case Diff::EditScript::Action::Type::insert: {
 						sub = new_val.substr(cur_action.offset, cur_action.count);
-						color = col_ins;
+                        color = &col_ins;
 						useColor = true;
 						break;
 					}
@@ -966,14 +963,14 @@ namespace Slic3r {
 					case Diff::EditScript::Action::Type::remove_lineBreak: {
 						sub = "\\n";
 						lb = true;
-						color = col_rem;
+                        color = &col_rem;
 						useColor = true;
 						break;
 					}
 					case Diff::EditScript::Action::Type::insert_lineBreak: {
 						sub = "\\n";
 						lb = true;
-						color = col_ins;
+                        color = &col_ins;
 						useColor = true;
 						break;
 					}
@@ -1069,7 +1066,7 @@ namespace Slic3r {
 				opt_id += "[" + std::to_string(extrIdx) + "]";
 			}
 
-			std::string tooltip = _(def.tooltip);
+            std::string tooltip = _(def.tooltip).ToStdString();
 			if (tooltip.length() > 0)
 				tooltip = tooltip + "\n" + _(L("default value")) + "\t: " +
 				(boost::iends_with(opt_id, "_gcode") ? "\n" : "") + default_val +
