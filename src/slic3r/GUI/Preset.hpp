@@ -210,6 +210,7 @@ public:
     // Set is_visible according to application config
     void                set_visible_from_appconfig(const AppConfig &app_config);
 
+	size_t				get_num_extruders() { return this->config.get_num_extruders(); }
     // Resize the extruder specific fields, initialize them with the content of the 1st extruder.
     void                set_num_extruders(unsigned int n) { this->config.set_num_extruders(n); }
 

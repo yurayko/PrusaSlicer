@@ -13,6 +13,86 @@
 namespace Slic3r {
 namespace GUI {
 
+struct BedShape {
+	static const size_t TRectangular = 0;
+	static const size_t TCircular = 1;
+	static const size_t TCustom = 2;
+	static const size_t TInvalid = 3;
+
+	BedShape(const ConfigOptionPoints& points) {
+		auto polygon = Polygon::new_scale(points.values);
+
+		// is this a rectangle ?
+		if (points.size() == 4) {
+			auto lines = polygon.lines();
+			if (lines[0].parallel_to(lines[2]) && lines[1].parallel_to(lines[3])) {
+				// okay, it's a rectangle
+				// find origin
+				coordf_t x_min, x_max, y_min, y_max;
+				x_max = x_min = points.values[0](0);
+				y_max = y_min = points.values[0](1);
+				for (auto pt : points.values)
+				{
+					x_min = std::min(x_min, pt(0));
+					x_max = std::max(x_max, pt(0));
+					y_min = std::min(y_min, pt(1));
+					y_max = std::max(y_max, pt(1));
+				}
+
+				type = TRectangular;
+				rectSize = Vec2d(x_max - x_min, y_max - y_min);
+				rectOrigin = Vec2d(-x_min, -y_min);
+
+				return;
+			}
+		}
+
+		// is this a circle ?
+		{
+			// Analyze the array of points.Do they reside on a circle ?
+			auto center = polygon.bounding_box().center();
+			std::vector<double> vertex_distances;
+			double avg_dist = 0;
+			for (auto pt : polygon.points)
+			{
+				double distance = (pt - center).cast<double>().norm();
+				vertex_distances.push_back(distance);
+				avg_dist += distance;
+			}
+
+			avg_dist /= vertex_distances.size();
+			bool defined_value = true;
+			for (auto el : vertex_distances)
+			{
+				if (abs(el - avg_dist) > 10 * SCALED_EPSILON)
+					defined_value = false;
+				break;
+			}
+			if (defined_value) {
+				// all vertices are equidistant to center
+				type = TCircular;
+				diameter = unscale<double>(avg_dist * 2);
+		
+				return;
+			}
+		}
+
+		if (points.size() < 3) {
+			type = TInvalid;
+			return;
+		}
+
+		// This is a custom bed shape, use the polygon provided.
+		type = TCustom;
+	}
+
+	size_t type = TInvalid;
+	Vec2d rectSize;
+	Vec2d rectOrigin;
+
+	double diameter;
+};
+
 using ConfigOptionsGroupShp = std::shared_ptr<ConfigOptionsGroup>;
 class BedShapePanel : public wxPanel
 {
@@ -28,7 +108,10 @@ class BedShapePanel : public wxPanel
 public:
     BedShapePanel(wxWindow* parent) : wxPanel(parent, wxID_ANY), m_custom_texture(NONE), m_custom_model(NONE) {}
 
-    void build_panel(const ConfigOptionPoints& default_pt, const ConfigOptionString& custom_texture, const ConfigOptionString& custom_model);
+	static ConfigOptionDef get_ConfigOptionDef(const std::string& key);
+	static wxString get_shape_name(size_t t_shape);
+
+	void build_panel(const ConfigOptionPoints& default_pt, const ConfigOptionString& custom_texture, const ConfigOptionString& custom_model);
 
     // Returns the resulting bed shape polygon. This value will be stored to the ini file.
     const std::vector<Vec2d>& get_shape() const { return m_shape; }

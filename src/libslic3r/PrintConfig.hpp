@@ -245,7 +245,10 @@ public:
 
     void                normalize();
 
+	size_t				get_num_extruders();
     void 				set_num_extruders(unsigned int num_extruders);
+
+	void				import_extruder_config_options(DynamicPrintConfig& conf);
 
     // Validate the PrintConfig. Returns an empty string on success, otherwise an error message is returned.
     std::string         validate();

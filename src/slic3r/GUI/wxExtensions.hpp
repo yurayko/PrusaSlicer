@@ -1,6 +1,7 @@
 #ifndef slic3r_GUI_wxExtensions_hpp_
 #define slic3r_GUI_wxExtensions_hpp_
 
+#include <wx/dcgraph.h>
 #include <wx/checklst.h>
 #include <wx/combo.h>
 #include <wx/dataview.h>
@@ -11,11 +12,14 @@
 #include <wx/sizer.h>
 #include <wx/slider.h>
 #include <wx/menu.h>
+#include <wx/generic/stattextg.h>
 #include <wx/wx.h>
 
 #include <vector>
 #include <set>
 #include <functional>
+#include <regex>
+
 #include "libslic3r/Model.hpp"
 
 namespace Slic3r {
@@ -1197,6 +1201,36 @@ private:
     wxMenuItem* m_separator_scnd { nullptr };   // use like separator between settings items
 };
 
+class GrayableStaticBitmap : public wxStaticBitmap
+{
+public:
+	GrayableStaticBitmap(wxWindow* parent, wxWindowID id, const wxBitmap& label, const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxDefaultSize, long style = 0, const wxString& name = wxStaticBitmapNameStr)
+		: wxStaticBitmap(parent, id, label, pos, size, style, name) 
+	{
+		m_normal_bmp = wxBitmap(label);
+		m_disabled_bmp = label.ConvertToDisabled();
+	}
 
+	bool Enable(bool enabled = true) {
+		this->SetBitmap(enabled ? m_normal_bmp : m_disabled_bmp);
+		return this->wxStaticBitmap::Enable(enabled);
+	}
+
+private:
+	wxBitmap m_normal_bmp;
+	wxBitmap m_disabled_bmp;
+};
+
+class GrayableMarkupText : public wxGenericStaticText
+{
+public:
+	GrayableMarkupText(wxWindow* parent, wxWindowID id, const wxString& label, const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxDefaultSize, long style = 0, const wxString& name = wxStaticTextNameStr);
+	bool Enable(bool enabled = true);
+
+private:
+	wxString text, text_disabled;
+};
+
+wxSize get_wxSizerItem_border_size(wxSizerItem* item, int flags = wxALL);
 
 #endif // slic3r_GUI_wxExtensions_hpp_

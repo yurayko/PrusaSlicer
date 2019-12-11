@@ -279,6 +279,7 @@ public:
 	// return option value from config 
 	boost::any	get_config_value(const DynamicPrintConfig& config, const std::string& opt_key, int opt_index = -1);
 	Field*		get_fieldc(const t_config_option_key& opt_key, int opt_index);
+	bool		has_opt(const t_config_option_key& opt_key, int opt_index);
 };
 
 //  Static text shown among the options.

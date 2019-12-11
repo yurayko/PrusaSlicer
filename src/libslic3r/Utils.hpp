@@ -66,6 +66,7 @@ extern std::error_code rename_file(const std::string &from, const std::string &t
 
 // Copy a file, adjust the access attributes, so that the target is writable.
 extern int copy_file(const std::string &from, const std::string &to);
+void copy_dir_recursive(const boost::filesystem::path& src, const boost::filesystem::path& dst);
 
 // Ignore system and hidden files, which may be created by the DropBox synchronisation process.
 // https://github.com/prusa3d/PrusaSlicer/issues/1298

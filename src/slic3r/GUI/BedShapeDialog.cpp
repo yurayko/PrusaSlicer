@@ -57,6 +57,48 @@ void BedShapeDialog::on_dpi_changed(const wxRect &suggested_rect)
 const std::string BedShapePanel::NONE = "None";
 const std::string BedShapePanel::EMPTY_STRING = "";
 
+ConfigOptionDef BedShapePanel::get_ConfigOptionDef(const std::string& key) {
+	ConfigOptionDef def;
+
+	if (key == "rect_size") {
+		def.opt_key = "rect_size";
+		def.type = coPoints;
+		def.set_default_value(new ConfigOptionPoints{ Vec2d(200, 200) });
+		def.label = L("Size");
+		def.tooltip = L("Size in X and Y of the rectangular plate.");
+	}
+	else if (key == "rect_origin") {
+		def.opt_key = "rect_origin";
+		def.type = coPoints;
+		def.set_default_value(new ConfigOptionPoints{ Vec2d(0, 0) });
+		def.label = L("Origin");
+		def.tooltip = L("Distance of the 0,0 G-code coordinate from the front left corner of the rectangle.");
+	}
+	else if (key == "diameter") {
+		def.opt_key = "diameter";
+		def.type = coFloat;
+		def.set_default_value(new ConfigOptionFloat(200));
+		def.sidetext = L("mm");
+		def.label = L("Diameter");
+		def.tooltip = L("Diameter of the print bed. It is assumed that origin (0,0) is located in the center.");
+	}
+
+	return def;
+}
+
+wxString BedShapePanel::get_shape_name(size_t t_shape) {
+	if (t_shape == BedShape::TRectangular) {
+		return _(L("Rectangular"));
+	}
+	else if (t_shape == BedShape::TCircular) {
+		return _(L("Circular"));
+	}
+	else if (t_shape == BedShape::TCustom) {
+		return _(L("Custom"));
+	}
+	return _(L("Invalid"));
+}
+
 void BedShapePanel::build_panel(const ConfigOptionPoints& default_pt, const ConfigOptionString& custom_texture, const ConfigOptionString& custom_model)
 {
     m_shape = default_pt.values;
@@ -72,32 +114,20 @@ void BedShapePanel::build_panel(const ConfigOptionPoints& default_pt, const Conf
     m_shape_options_book = new wxChoicebook(this, wxID_ANY, wxDefaultPosition, wxSize(25*wxGetApp().em_unit(), -1), wxCHB_TOP);
     sbsizer->Add(m_shape_options_book);
 
-	auto optgroup = init_shape_options_page(_(L("Rectangular")));
-	ConfigOptionDef def;
-	def.type = coPoints;
-	def.set_default_value(new ConfigOptionPoints{ Vec2d(200, 200) });
-	def.label = L("Size");
-	def.tooltip = L("Size in X and Y of the rectangular plate.");
-	Option option(def, "rect_size");
+	auto optgroup = init_shape_options_page(get_shape_name(BedShape::TRectangular));
+	
+	Option option(this->get_ConfigOptionDef("rect_size"), "rect_size");
+	optgroup->append_single_option_line(option);
+	
+	option = Option(this->get_ConfigOptionDef("rect_origin"), "rect_origin");
 	optgroup->append_single_option_line(option);
 
-	def.type = coPoints;
-	def.set_default_value(new ConfigOptionPoints{ Vec2d(0, 0) });
-	def.label = L("Origin");
-	def.tooltip = L("Distance of the 0,0 G-code coordinate from the front left corner of the rectangle.");
-	option = Option(def, "rect_origin");
+	optgroup = init_shape_options_page(get_shape_name(BedShape::TCircular));
+	
+	option = Option(this->get_ConfigOptionDef("diameter"), "diameter");
 	optgroup->append_single_option_line(option);
 
-	optgroup = init_shape_options_page(_(L("Circular")));
-	def.type = coFloat;
-	def.set_default_value(new ConfigOptionFloat(200));
-	def.sidetext = L("mm");
-	def.label = L("Diameter");
-	def.tooltip = L("Diameter of the print bed. It is assumed that origin (0,0) is located in the center.");
-	option = Option(def, "diameter");
-	optgroup->append_single_option_line(option);
-
-	optgroup = init_shape_options_page(_(L("Custom")));
+	optgroup = init_shape_options_page(get_shape_name(BedShape::TCustom));
 	Line line{ "", "" };
 	line.full_width = 1;
 	line.widget = [this](wxWindow* parent) {
@@ -144,10 +174,6 @@ void BedShapePanel::build_panel(const ConfigOptionPoints& default_pt, const Conf
 	set_shape(default_pt);
 	update_preview();
 }
-
-#define SHAPE_RECTANGULAR	0
-#define SHAPE_CIRCULAR		1
-#define SHAPE_CUSTOM		2
 
 // Called from the constructor.
 // Create a panel for a rectangular / circular / custom bed shape.
@@ -333,83 +359,39 @@ wxPanel* BedShapePanel::init_model_panel()
 // with the list of points in the ini file directly.
 void BedShapePanel::set_shape(const ConfigOptionPoints& points)
 {
-    auto polygon = Polygon::new_scale(points.values);
+	BedShape shape(points);
 
-	// is this a rectangle ?
-    if (points.size() == 4) {
-        auto lines = polygon.lines();
-		if (lines[0].parallel_to(lines[2]) && lines[1].parallel_to(lines[3])) {
-			// okay, it's a rectangle
-			// find origin
-            coordf_t x_min, x_max, y_min, y_max;
-            x_max = x_min = points.values[0](0);
-            y_max = y_min = points.values[0](1);
-            for (auto pt : points.values)
-            {
-                x_min = std::min(x_min, pt(0));
-                x_max = std::max(x_max, pt(0));
-                y_min = std::min(y_min, pt(1));
-                y_max = std::max(y_max, pt(1));
-            }
-
-            auto origin = new ConfigOptionPoints{ Vec2d(-x_min, -y_min) };
-
-			m_shape_options_book->SetSelection(SHAPE_RECTANGULAR);
-			auto optgroup = m_optgroups[SHAPE_RECTANGULAR];
-			optgroup->set_value("rect_size", new ConfigOptionPoints{ Vec2d(x_max - x_min, y_max - y_min) });//[x_max - x_min, y_max - y_min]);
-			optgroup->set_value("rect_origin", origin);
-			update_shape();
-			return;
-		}
-	}
-
-	// is this a circle ?
-	{
-		// Analyze the array of points.Do they reside on a circle ?
-		auto center = polygon.bounding_box().center();
-		std::vector<double> vertex_distances;
-		double avg_dist = 0;
-		for (auto pt: polygon.points)
-		{
-			double distance = (pt - center).cast<double>().norm();
-			vertex_distances.push_back(distance);
-			avg_dist += distance;
-		}
-
-		avg_dist /= vertex_distances.size();
-		bool defined_value = true;
-		for (auto el: vertex_distances)
-		{
-			if (abs(el - avg_dist) > 10 * SCALED_EPSILON)
-				defined_value = false;
+	switch (shape.type) {
+		case BedShape::TRectangular: {
+			m_shape_options_book->SetSelection(BedShape::TRectangular);
+			auto optgroup = m_optgroups[BedShape::TRectangular];
+			optgroup->set_value("rect_size", new ConfigOptionPoints{ shape.rectSize });
+			optgroup->set_value("rect_origin", new ConfigOptionPoints{ shape.rectOrigin });
 			break;
 		}
-		if (defined_value) {
-			// all vertices are equidistant to center
-			m_shape_options_book->SetSelection(SHAPE_CIRCULAR);
-			auto optgroup = m_optgroups[SHAPE_CIRCULAR];
-			boost::any ret = wxNumberFormatter::ToString(unscale<double>(avg_dist * 2), 0);
- 			optgroup->set_value("diameter", ret);
-			update_shape();
-			return;
+		case BedShape::TCircular: {
+			m_shape_options_book->SetSelection(BedShape::TCircular);
+			auto optgroup = m_optgroups[BedShape::TCircular];
+			boost::any ret = wxNumberFormatter::ToString(shape.diameter, 0, wxNumberFormatter::Style_None);
+			optgroup->set_value("diameter", ret);
+			break;
+		}
+		case BedShape::TCustom: {
+			m_shape_options_book->SetSelection(BedShape::TCustom);
+			// Copy the polygon to the canvas, make a copy of the array.
+			m_loaded_shape = points.values;
+			break;
+		}
+		default: { //TInvalid
+			// Invalid polygon.Revert to default bed dimensions.
+			m_shape_options_book->SetSelection(BedShape::TRectangular);
+			auto optgroup = m_optgroups[BedShape::TRectangular];
+			optgroup->set_value("rect_size", new ConfigOptionPoints{ Vec2d(200, 200) });
+			optgroup->set_value("rect_origin", new ConfigOptionPoints{ Vec2d(0, 0) });
 		}
 	}
-
-    if (points.size() < 3) {
-        // Invalid polygon.Revert to default bed dimensions.
-		m_shape_options_book->SetSelection(SHAPE_RECTANGULAR);
-		auto optgroup = m_optgroups[SHAPE_RECTANGULAR];
-		optgroup->set_value("rect_size", new ConfigOptionPoints{ Vec2d(200, 200) });
-		optgroup->set_value("rect_origin", new ConfigOptionPoints{ Vec2d(0, 0) });
-		update_shape();
-		return;
-	}
-
-	// This is a custom bed shape, use the polygon provided.
-	m_shape_options_book->SetSelection(SHAPE_CUSTOM);
-	// Copy the polygon to the canvas, make a copy of the array.
-    m_loaded_shape = points.values;
-    update_shape();
+	
+	update_shape();
 }
 
 void BedShapePanel::update_preview()
@@ -422,16 +404,16 @@ void BedShapePanel::update_preview()
 void BedShapePanel::update_shape()
 {
 	auto page_idx = m_shape_options_book->GetSelection();
-	if (page_idx == SHAPE_RECTANGULAR) {
+	if (page_idx == BedShape::TRectangular) {
 		Vec2d rect_size(Vec2d::Zero());
 		Vec2d rect_origin(Vec2d::Zero());
 		try{
-			rect_size = boost::any_cast<Vec2d>(m_optgroups[SHAPE_RECTANGULAR]->get_value("rect_size")); }
+			rect_size = boost::any_cast<Vec2d>(m_optgroups[BedShape::TRectangular]->get_value("rect_size")); }
 		catch (const std::exception & /* e */) {
 			return;
 		}
 		try {
-			rect_origin = boost::any_cast<Vec2d>(m_optgroups[SHAPE_RECTANGULAR]->get_value("rect_origin"));
+			rect_origin = boost::any_cast<Vec2d>(m_optgroups[BedShape::TRectangular]->get_value("rect_origin"));
 		}
 		catch (const std::exception & /* e */) {
 			return;
@@ -458,10 +440,10 @@ void BedShapePanel::update_shape()
                     Vec2d(x1, y1),
                     Vec2d(x0, y1) };
     }
-	else if(page_idx == SHAPE_CIRCULAR) {
+	else if(page_idx == BedShape::TCircular) {
 		double diameter;
 		try{
-			diameter = boost::any_cast<double>(m_optgroups[SHAPE_CIRCULAR]->get_value("diameter"));
+			diameter = boost::any_cast<double>(m_optgroups[BedShape::TCircular]->get_value("diameter"));
 		}
 		catch (const std::exception & /* e */) {
 			return;
@@ -477,7 +459,7 @@ void BedShapePanel::update_shape()
 		}
         m_shape = points;
     }
-    else if (page_idx == SHAPE_CUSTOM) 
+    else if (page_idx == BedShape::TCustom)
         m_shape = m_loaded_shape;
 
     update_preview();

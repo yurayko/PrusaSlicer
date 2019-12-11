@@ -82,6 +82,7 @@ public:
     void        update_visibility(ConfigOptionMode mode);
     void        msw_rescale();
 	Field*		get_field(const t_config_option_key& opt_key, int opt_index = -1) const;
+	const ConfigOptionsGroupShp get_opt_group(const t_config_option_key& opt_key, int opt_index /*= -1*/) const;
 	bool		set_value(const t_config_option_key& opt_key, const boost::any& value);
 	ConfigOptionsGroupShp	new_optgroup(const wxString& title, int noncommon_label_width = -1);
 
@@ -109,6 +110,8 @@ wxDECLARE_EVENT(EVT_TAB_PRESETS_CHANGED, SimpleEvent);
 
 
 using PageShp = std::shared_ptr<Page>;
+typedef std::pair<const PageShp, const ConfigOptionsGroupShp> PageOptGroupShp;
+
 class Tab: public wxPanel
 {
 	wxNotebook*			m_parent;
@@ -227,7 +230,13 @@ public:
 	PresetCollection*	m_presets;
 	DynamicPrintConfig*	m_config;
 	ogStaticText*		m_parent_preset_description_line;
-	wxStaticText*		m_colored_Label = nullptr;
+
+	//If an option doesn't have a field with a label in a page, it can still have a "parent" label
+	//This is the case with options that are on a new window after a button press
+	//Used to set modified_label_clr
+	typedef std::map<std::string, wxStaticText*> OptKey_Label_Map;
+	OptKey_Label_Map m_opt_parent_labels;
+
     // Counter for the updating (because of an update() function can have a recursive behavior):
     // 1. increase value from the very beginning of an update() function
     // 2. decrease value at the end of an update() function
@@ -264,6 +273,7 @@ public:
 	void		OnKeyDown(wxKeyEvent& event);
 
 	void		save_preset(std::string name = "");
+	void		update_after_preset_save(bool update_extr_count = true);
 	void		delete_preset();
 	void		toggle_show_hide_incompatible();
 	void		update_show_hide_incompatible_button();
@@ -296,6 +306,8 @@ public:
 	wxSizer*		description_line_widget(wxWindow* parent, ogStaticText** StaticText);
 	bool			current_preset_is_dirty();
 
+	PageOptGroupShp get_page_and_optgroup(const t_config_option_key& opt_key, int opt_index = -1) const;
+
 	DynamicPrintConfig*	get_config() { return m_config; }
 	PresetCollection*	get_presets() { return m_presets; }
 	size_t				get_selected_preset_item() { return m_selected_preset_item; }
@@ -303,6 +315,8 @@ public:
 	void			on_value_change(const std::string& opt_key, const boost::any& value);
 
     void            update_wiping_button_visibility();
+
+	wxBitmap		get_page_icon(int index);
 
 protected:
 	wxSizer*		compatible_widget_create(wxWindow* parent, PresetDependencies &deps);
@@ -371,22 +385,39 @@ class TabPrinter : public Tab
 
     void build_printhost(ConfigOptionsGroup *optgroup);
 public:
-	wxButton*	m_serial_test_btn = nullptr;
+	wxButton*		m_serial_test_btn = nullptr;
 	ScalableButton*	m_print_host_test_btn = nullptr;
 	ScalableButton*	m_printhost_browse_btn = nullptr;
 	ScalableButton*	m_reset_to_filament_color = nullptr;
 
-	size_t		m_extruders_count;
-	size_t		m_extruders_count_old = 0;
-	size_t		m_initial_extruders_count;
-	size_t		m_sys_extruders_count;
+	ConfigOptionDef*	m_extruders_count_def;
+	size_t				m_extruders_count;
+	size_t				m_extruders_count_old = 0;
+	size_t				m_initial_extruders_count;
+	size_t				m_sys_extruders_count;
 
     PrinterTechnology               m_printer_technology = ptFFF;
 
 // 	TabPrinter(wxNotebook* parent) : Tab(parent, _(L("Printer Settings")), L("printer")) {}
     TabPrinter(wxNotebook* parent) : 
-        Tab(parent, _(L("Printer Settings")), Slic3r::Preset::TYPE_PRINTER) {}
-	~TabPrinter() {}
+        Tab(parent, _(L("Printer Settings")), Slic3r::Preset::TYPE_PRINTER) 
+	{
+		ConfigOptionDef def;
+		def.opt_key = "extruders_count";
+		def.type = coInt;
+		def.set_default_value(new ConfigOptionInt(1));
+		def.label = L("Extruders");
+		def.category = L("General");
+		def.tooltip = L("Number of extruders of the printer.");
+		def.min = 1;
+		def.mode = comExpert;
+
+		this->m_extruders_count_def = new ConfigOptionDef(std::move(def));
+	}
+	~TabPrinter() 
+	{
+		delete this->m_extruders_count_def;
+	}
 
 	void		build() override;
     void		build_fff();
@@ -436,15 +467,81 @@ public:
 class SavePresetWindow :public wxDialog
 {
 public:
-	SavePresetWindow(wxWindow* parent) :wxDialog(parent, wxID_ANY, _(L("Save preset"))) {}
-	~SavePresetWindow() {}
+	SavePresetWindow(wxWindow* parent) : wxDialog(parent, wxID_ANY, _(L("Save preset"))) 
+	{
+		m_icon_cross = create_scaled_bitmap(nullptr, "cross_red");
+		m_icon_warning = create_scaled_bitmap(nullptr, "warning");
+		m_icon_tick = create_scaled_bitmap(nullptr, "tick_mark");
+		
+		this->build_base_layout();
+	}
+	~SavePresetWindow() {
+		for (Entry* cur_entry : entries) {
+			delete cur_entry;
+		}
+	}
 
-	std::string		m_chosen_name;
-	wxComboBox*		m_combo;
+	void						build_entry(const wxString& title, const std::string& default_name, std::vector<std::string> &values, PresetCollection* presets, Tab* tab = NULL);
+	std::string					get_name() { return get_tab_name_pairs()[0].second; }
+	std::vector<std::pair<Tab*, std::string>>	get_tab_name_pairs() { 
+		std::vector<std::pair<Tab*, std::string>> pairs;
+		for (Entry* cur_entry : entries) {
+			pairs.emplace_back(cur_entry->tab, cur_entry->hasValidChosenName ? cur_entry->chosenName : "nil");
+		}
+		return pairs;
+	}
 
-	void			build(const wxString& title, const std::string& default_name, std::vector<std::string> &values);
-	void			accept();
-	std::string		get_name() { return m_chosen_name; }
+private:
+	struct Entry {
+		wxComboBox* combo;
+		std::string title;
+		PresetCollection* preset;
+		Tab* tab;
+
+		wxStaticBitmap* status_icon = NULL;
+		wxStaticText* status_text = NULL;
+		std::string str_status_text = "nil";
+
+		bool mustDeleteOld = false;
+		bool hasValidChosenName = false;
+		std::string chosenName;
+
+		size_t max_width;
+
+		Entry(wxComboBox* _combo, std::string _title, PresetCollection* _preset, wxStaticBitmap* _icon, wxStaticText* _text, Tab* _tab, size_t _max_width) : 
+			combo(_combo),
+			title(_title),
+			preset(_preset),
+			status_icon(_icon),
+			status_text(_text),
+			tab(_tab),
+			max_width(_max_width)
+		{}
+
+		void setStatus(const wxBitmap& icon, std::string text, wxFont font) {
+			this->status_icon->SetBitmap(icon);
+			this->status_text->SetLabel(text);
+			this->status_text->SetFont(font);
+
+			this->status_text->Wrap(max_width);
+		}
+	};
+
+	size_t						m_max_width;
+	std::vector<Entry*>			entries;
+	size_t						cur_entry_insert_offset = 0;
+	wxBoxSizer*					m_sizer;
+	std::vector<std::string>	m_chosen_names;
+
+	wxButton* m_btn_accept;
+	wxBitmap m_icon_tick;
+	wxBitmap m_icon_cross;
+	wxBitmap m_icon_warning;
+
+	void build_base_layout();
+	void On_combo_text(Entry* entry);
+	void update_btn_accept();
+	void accept();
 };
 
 } // GUI

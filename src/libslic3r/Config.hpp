@@ -152,6 +152,8 @@ public:
     	*this = *rhs; 
     	return true;
     }
+	//better suitable than serialize() for displaying in a gui
+	virtual std::string			to_string() const { return this->serialize(); }
 };
 
 typedef ConfigOption*       ConfigOptionPtr;
@@ -194,6 +196,8 @@ class ConfigOptionVectorBase : public ConfigOption {
 public:
     // Currently used only to initialize the PlaceholderParser.
     virtual std::vector<std::string> vserialize() const = 0;
+	//Better for displaying in a gui, defaults to vserialize
+	virtual std::vector<std::string> v_to_string() const { return this->vserialize(); };
     // Set from a vector of ConfigOptions. 
     // If the rhs ConfigOption is scalar, then its value is used,
     // otherwise for each of rhs, the first value of a vector is used.
@@ -698,6 +702,11 @@ public:
         return unescape_string_cstyle(str, this->value);
     }
 
+	std::string to_string() const override
+	{
+		return this->value;
+	}
+
 private:
 	friend class cereal::access;
 	template<class Archive> void serialize(Archive &ar) { ar(cereal::base_class<ConfigOptionSingle<std::string>>(this)); }
@@ -736,6 +745,25 @@ public:
             this->values.clear();
         return unescape_strings_cstyle(str, this->values);
     }
+
+	std::string to_string() const override
+	{
+		std::string s;
+		bool first = true;
+
+		for (std::string curLine : this->values) {
+			if (first) {
+				first = false;
+			}
+			else {
+				s += "\n";
+			}
+
+			s += curLine;
+		}
+
+		return s;
+	}
 
 private:
 	friend class cereal::access;
@@ -915,6 +943,17 @@ public:
                sscanf(str.data(), " %lf x %lf %c", &this->value(0), &this->value(1), &dummy) == 2;
     }
 
+	std::string to_string() const override
+	{
+		std::ostringstream ss;
+		ss << '[';
+		ss << this->value(0);
+		ss << ",";
+		ss << this->value(1);
+		ss << ']';
+		return ss.str();
+	}
+
 private:
 	friend class cereal::access;
 	template<class Archive> void serialize(Archive &ar) { ar(cereal::base_class<ConfigOptionSingle<Vec2d>>(this)); }
@@ -949,14 +988,29 @@ public:
     
     std::vector<std::string> vserialize() const override
     {
-        std::vector<std::string> vv;
-        for (Pointfs::const_iterator it = this->values.begin(); it != this->values.end(); ++it) {
-            std::ostringstream ss;
-            ss << *it;
-            vv.push_back(ss.str());
-        }
-        return vv;
+		std::vector<std::string> vv;
+		for (Pointfs::const_iterator it = this->values.begin(); it != this->values.end(); ++it) {
+			std::ostringstream ss;
+			ss << *it;
+			vv.push_back(ss.str());
+		}
+		return vv;
     }
+
+	std::string to_string() const override
+	{
+		std::ostringstream ss;
+		for (Pointfs::const_iterator it = this->values.begin(); it != this->values.end(); ++it) {
+			if (it - this->values.begin() != 0) ss << ", ";
+
+			ss << '[';
+			ss << (*it)[0];
+			ss << ',';
+			ss << (*it)[1];
+			ss << ']';
+		}
+		return ss.str();
+	}
     
     bool deserialize(const std::string &str, bool append = false) override
     {
@@ -1025,6 +1079,11 @@ public:
                sscanf(str.data(), " %lf x %lf x %lf %c", &this->value(0), &this->value(1), &this->value(2), &dummy) == 2;
     }
 
+	std::string to_string() const override
+	{
+		return '[' + this->serialize() + ']';
+	}
+
 private:
 	friend class cereal::access;
 	template<class Archive> void serialize(Archive &ar) { ar(cereal::base_class<ConfigOptionSingle<Vec3d>>(this)); }
@@ -1054,6 +1113,11 @@ public:
         this->value = (str.compare("1") == 0);
         return true;
     }
+
+	std::string to_string() const override
+	{
+		return this->value ? "true" : "false";
+	}
 
 private:
 	friend class cereal::access;
@@ -1132,6 +1196,45 @@ public:
         }
         return true;
     }
+
+	std::string to_string() const override
+	{
+		std::ostringstream ss;
+		for (const unsigned char& v : this->values) {
+			if (&v != &this->values.front())
+				ss << ",";
+
+			if (v == nil_value()) {
+				if (NULLABLE)
+					ss << "nil";
+				else
+					std::runtime_error("Serializing NaN");
+			}
+			else
+				ss << (v ? "true" : "false");
+		}
+		return ss.str();
+	}
+
+	std::vector<std::string> v_to_string()
+	{
+		std::vector<std::string> vv;
+		for (const unsigned char v : this->values) {
+			std::ostringstream ss;
+
+			if (v == nil_value()) {
+				if (NULLABLE)
+					ss << "nil";
+				else
+					std::runtime_error("Serializing NaN");
+			}
+			else
+				ss << (v ? "true" : "false");
+
+			vv.push_back(ss.str());
+		}
+		return vv;
+	}
 
 protected:
 	void serialize_single_value(std::ostringstream &ss, const unsigned char v) const {

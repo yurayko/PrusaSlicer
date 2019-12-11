@@ -313,6 +313,7 @@ Line OptionsGroup::create_single_option_line(const Option& option) const {
 // 	Line retval{ _(option.opt.label), _(option.opt.tooltip) };
     wxString tooltip = _(option.opt.tooltip);
     edit_tooltip(tooltip);
+	//Line retval{ _(option.opt_id + "|" + option.opt.category), tooltip }; //for debugging
 	Line retval{ _(option.opt.label), tooltip };
     Option tmp(option);
     tmp.opt.label = std::string("");
@@ -698,6 +699,22 @@ Field* ConfigOptionsGroup::get_fieldc(const t_config_option_key& opt_key, int op
 		}
 	}
 	return opt_id.empty() ? nullptr : get_field(opt_id);
+}
+
+bool ConfigOptionsGroup::has_opt(const t_config_option_key& opt_key, int opt_index)
+{
+	Field* field = get_field(opt_key);
+	if (field != nullptr) {
+		return true;
+	}
+
+	for (t_opt_map::iterator it = m_opt_map.begin(); it != m_opt_map.end(); ++it) {
+		if (opt_key == m_opt_map.at(it->first).first && opt_index == m_opt_map.at(it->first).second) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 void ogStaticText::SetText(const wxString& value, bool wrap/* = true*/)

@@ -46,6 +46,7 @@
 #include "SysInfoDialog.hpp"
 #include "KBShortcutsDialog.hpp"
 #include "UpdateDialogs.hpp"
+#include "UnsavedChangesDialog.hpp"
 
 #ifdef __WXMSW__
 #include <Shlobj.h>
@@ -202,8 +203,19 @@ bool GUI_App::on_init_inner()
     // Unix: ~/ .Slic3r
     // Windows : "C:\Users\username\AppData\Roaming\Slic3r" or "C:\Documents and Settings\username\Application Data\Slic3r"
     // Mac : "~/Library/Application Support/Slic3r"
-    if (data_dir().empty())
-        set_data_dir(wxStandardPaths::Get().GetUserDataDir().ToUTF8().data());
+	if (data_dir().empty()) {
+		std::string dir = wxStandardPaths::Get().GetUserDataDir().ToUTF8().data();
+
+#ifdef _DEBUG
+		std::string dbg_dir = dir + "_DEBUG";
+		if (!wxDirExists(dbg_dir) && wxDirExists(dir)) {
+			copy_dir_recursive(dir, dbg_dir);
+		}
+		set_data_dir(dbg_dir);
+#else
+		set_data_dir(dir);
+#endif
+	}
 
     app_config = new AppConfig();
     preset_bundle = new PresetBundle();
@@ -917,29 +929,13 @@ void GUI_App::add_config_menu(wxMenuBar *menu)
 // to notify the user whether he is aware that some preset changes will be lost.
 bool GUI_App::check_unsaved_changes(const wxString &header)
 {
-    wxString dirty;
-    PrinterTechnology printer_technology = preset_bundle->printers.get_edited_preset().printer_technology();
-    for (Tab *tab : tabs_list)
-        if (tab->supports_printer_technology(printer_technology) && tab->current_preset_is_dirty()) {
-            if (dirty.empty())
-                dirty = tab->title();
-            else
-                dirty += wxString(", ") + tab->title();
-        }
-
-    if (dirty.empty())
-        // No changes, the application may close or reload presets.
-        return true;
-    // Ask the user.
-    wxString message;
-    if (! header.empty())
-    	message = header + "\n\n";
-    message += _(L("The presets on the following tabs were modified")) + ": " + dirty + "\n\n" + _(L("Discard changes and continue anyway?"));
-    wxMessageDialog dialog(mainframe,
-        message,
-        wxString(SLIC3R_APP_NAME) + " - " + _(L("Unsaved Presets")),
-        wxICON_QUESTION | wxYES_NO | wxNO_DEFAULT);
-    return dialog.ShowModal() == wxID_YES;
+	PrinterTechnology printer_technology = this->preset_bundle->printers.get_edited_preset().printer_technology();
+	for (Tab* tab : this->tabs_list)
+		if (tab->supports_printer_technology(printer_technology) && tab->current_preset_is_dirty()) {
+			UnsavedChangesDialog dialog(mainframe, this, header, wxString(SLIC3R_APP_NAME) + " - " + _(L("Unsaved Presets")));
+			return dialog.ShowModal() == wxID_YES;
+		}
+	return true;
 }
 
 bool GUI_App::checked_tab(Tab* tab)
@@ -1060,6 +1056,15 @@ wxString GUI_App::current_language_code_safe() const
 	else
 		language_code = "en_US";
 	return language_code;
+}
+
+Tab* GUI_App::find_tab_for_presets(const PresetCollection* preset) {
+	for (Tab* cur_tab : this->tabs_list) {
+		if (cur_tab->m_presets == preset) {
+			return cur_tab;
+		}
+	}
+	return nullptr;
 }
 
 void GUI_App::open_web_page_localized(const std::string &http_address)

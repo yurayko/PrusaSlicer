@@ -3973,6 +3973,49 @@ void ScalableButton::msw_rescale()
     }
 }
 
+wxSize get_wxSizerItem_border_size(wxSizerItem* item, int flags) {
+	int f = item->GetFlag() & flags;
+	int b = item->GetBorder();
+	int w = 0, h = 0;
 
+	w += f & wxLEFT ? b : 0;
+	w += f & wxRIGHT? b : 0;
+	h += f & wxTOP ? b : 0;
+	h += f & wxBOTTOM ? b : 0;
 
+	return wxSize(w, h);
+}
 
+GrayableMarkupText::GrayableMarkupText(wxWindow* parent, wxWindowID id, const wxString& label, const wxPoint& pos, const wxSize& size, long style, const wxString& name)
+	: wxGenericStaticText(parent, id, "", pos, size, style, name)
+{
+	std::regex rx(" (?:foreground|fgcolor|color|background|bgcolor) *= *\"#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})\"");
+	std::smatch match;
+	std::string _text = label.ToStdString();
+
+	std::string::const_iterator start = _text.cbegin();
+	while (std::regex_search(start, _text.cend(), match, rx)) {
+		unsigned long r, g, b;
+		r = std::stoul(match[1], nullptr, 16);
+		g = std::stoul(match[2], nullptr, 16);
+		b = std::stoul(match[3], nullptr, 16);
+		wxColour col(r, g, b);
+
+		col = col.MakeDisabled();
+
+		std::string new_col = wxString::Format("%02X%02X%02X", col.Red(), col.Green(), col.Blue()).ToStdString();
+
+		_text.replace(match[1].first, match[3].second, new_col);
+		start = match.suffix().first;
+	}
+
+	text = label;
+	text_disabled = _text;
+
+	this->SetLabelMarkup(label);
+}
+
+bool GrayableMarkupText::Enable(bool enabled) {
+	this->SetLabelMarkup(enabled ? text : text_disabled);
+	return this->wxGenericStaticText::Enable(enabled);
+}

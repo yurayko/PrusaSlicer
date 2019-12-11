@@ -9,6 +9,7 @@
 #include "slic3r/Utils/PrintHost.hpp"
 #include "BonjourDialog.hpp"
 #include "WipeTowerDialog.hpp"
+#include "UnsavedChangesDialog.hpp"
 #include "ButtonsDescription.hpp"
 
 #include <wx/app.h>
@@ -22,10 +23,10 @@
 #include <wx/imaglist.h>
 #include <wx/settings.h>
 #include <wx/filedlg.h>
+#include <wx/wupdlock.h>
 
 #include <boost/algorithm/string/predicate.hpp>
 #include "wxExtensions.hpp"
-#include <wx/wupdlock.h>
 
 #include "GUI_App.hpp"
 #include "GUI_ObjectList.hpp"
@@ -347,6 +348,7 @@ void Tab::update_labels_colour()
 {
 //	Freeze();
     //update options "decoration"
+	std::map<wxStaticText*, bool> already_modified_parent_labels;
     for (const auto opt : m_options_list)
     {
         const wxColour *color = &m_sys_label_clr;
@@ -360,10 +362,20 @@ void Tab::update_labels_colour()
             else
                 color = &m_modified_label_clr;
         }
-        if (opt.first == "bed_shape" || opt.first == "compatible_prints" || opt.first == "compatible_printers") {
-            if (m_colored_Label != nullptr)	{
-                m_colored_Label->SetForegroundColour(*color);
-                m_colored_Label->Refresh(true);
+		OptKey_Label_Map::iterator it = m_opt_parent_labels.find(opt.first);
+		if (it != m_opt_parent_labels.end()) {
+			wxStaticText* label = it->second;
+            if (label != nullptr)	{
+				std::map<wxStaticText*, bool>::iterator mod = already_modified_parent_labels.find(label);
+				if (mod == already_modified_parent_labels.end()) {
+					label->SetForegroundColour(*color);
+					label->Refresh(true);
+
+					//once the parent label color is set to modified, it should not be changed
+					if (color == &m_modified_label_clr) {
+						already_modified_parent_labels[label] = true;
+					}
+				}
             }
             continue;
         }
@@ -418,6 +430,7 @@ void Tab::update_changed_ui()
     for (auto opt_key : dirty_options)	m_options_list[opt_key] &= ~osInitValue;
     for (auto opt_key : nonsys_options)	m_options_list[opt_key] &= ~osSystemValue;
 
+	std::map<wxStaticText*, bool> already_modified_parent_labels;
 //	Freeze();
     //update options "decoration"
     for (const auto opt : m_options_list)
@@ -450,13 +463,23 @@ void Tab::update_changed_ui()
             icon = &m_bmp_white_bullet;
             tt = &m_tt_white_bullet;
         }
-        if (opt.first == "bed_shape" || opt.first == "compatible_prints" || opt.first == "compatible_printers") {
-            if (m_colored_Label != nullptr)	{
-                m_colored_Label->SetForegroundColour(*color);
-                m_colored_Label->Refresh(true);
-            }
-            continue;
-        }
+		OptKey_Label_Map::iterator it = m_opt_parent_labels.find(opt.first);
+		if (it != m_opt_parent_labels.end()) {
+			wxStaticText* label = it->second;
+			if (label != nullptr) {
+				std::map<wxStaticText*, bool>::iterator mod = already_modified_parent_labels.find(label);
+				if (mod == already_modified_parent_labels.end()) {
+					label->SetForegroundColour(*color);
+					label->Refresh(true);
+
+					//once the parent label color is set to modified, it should not be changed
+					if (color == &m_modified_label_clr) {
+						already_modified_parent_labels[label] = true;
+					}
+				}
+			}
+			continue;
+		}
 
         Field* field = get_field(opt.first);
         if (field == nullptr) continue;
@@ -572,7 +595,7 @@ void Tab::update_changed_tree_ui()
             bool sys_page = true;
             bool modified_page = false;
             if (title == _("General")) {
-                std::initializer_list<const char*> optional_keys{ "extruders_count", "bed_shape" };
+                std::initializer_list<const char*> optional_keys{ "extruders_count", "bed_shape", "bed_custom_texture", "bed_custom_model" };
                 for (auto &opt_key : optional_keys) {
                     get_sys_and_mod_flags(opt_key, sys_page, modified_page);
                 }
@@ -799,6 +822,17 @@ Field* Tab::get_field(const t_config_option_key& opt_key, int opt_index/* = -1*/
     return field;
 }
 
+PageOptGroupShp Tab::get_page_and_optgroup(const t_config_option_key& opt_key, int opt_index/* = -1*/) const
+{
+	for (const PageShp page : m_pages) {
+		const ConfigOptionsGroupShp optgroup = page->get_opt_group(opt_key, opt_index);
+		if (optgroup != nullptr) {
+			return std::pair<const PageShp, const ConfigOptionsGroupShp>(page, optgroup);
+		}
+	}
+	return std::pair<const PageShp, const ConfigOptionsGroupShp>(nullptr, nullptr);
+}
+
 // Set a key/value pair on this page. Return true if the value has been modified.
 // Currently used for distributing extruders_count over preset pages of Slic3r::GUI::Tab::Printer
 // after a preset is loaded.
@@ -904,6 +938,9 @@ void Tab::update_wiping_button_visibility() {
     }
 }
 
+wxBitmap Tab::get_page_icon(int index) {
+	return this->m_icons->GetIcon(index);
+}
 
 // Call a callback to update the selection of presets on the platter:
 // To update the content of the selection boxes,
@@ -1241,11 +1278,15 @@ void TabPrint::build()
 
     page = add_options_page(_(L("Dependencies")), "wrench.png");
         optgroup = page->new_optgroup(_(L("Profile dependencies")));
+
         line = optgroup->create_single_option_line("compatible_printers");
         line.widget = [this](wxWindow* parent) {
             return compatible_widget_create(parent, m_compatible_printers);
         };
-        optgroup->append_line(line, &m_colored_Label);
+		wxStaticText* label;
+        optgroup->append_line(line, &label);
+		m_opt_parent_labels["compatible_printers"] = label;
+
         option = optgroup->get_option("compatible_printers_condition");
         option.opt.full_width = true;
         optgroup->append_single_option_line(option);
@@ -1529,7 +1570,10 @@ void TabFilament::build()
         line.widget = [this](wxWindow* parent) {
             return compatible_widget_create(parent, m_compatible_printers);
         };
-        optgroup->append_line(line, &m_colored_Label);
+        wxStaticText* label;
+        optgroup->append_line(line, &label);
+		m_opt_parent_labels["compatible_printers"] = label;
+
         option = optgroup->get_option("compatible_printers_condition");
         option.opt.full_width = true;
         optgroup->append_single_option_line(option);
@@ -1538,7 +1582,9 @@ void TabFilament::build()
         line.widget = [this](wxWindow* parent) {
             return compatible_widget_create(parent, m_compatible_prints);
         };
-        optgroup->append_line(line, &m_colored_Label);
+        optgroup->append_line(line, &label);
+		m_opt_parent_labels["compatible_prints"] = label;
+
         option = optgroup->get_option("compatible_prints_condition");
         option.opt.full_width = true;
         optgroup->append_single_option_line(option);
@@ -1797,19 +1843,18 @@ void TabPrinter::build_fff()
 
             return sizer;
         };
-        optgroup->append_line(line, &m_colored_Label);
+		wxStaticText* label;
+		optgroup->append_line(line, &label);
+		m_opt_parent_labels["bed_shape"] = label;
+		m_opt_parent_labels["bed_custom_texture"] = label;
+		m_opt_parent_labels["bed_custom_model"] = label;
+
         optgroup->append_single_option_line("max_print_height");
         optgroup->append_single_option_line("z_offset");
 
         optgroup = page->new_optgroup(_(L("Capabilities")));
-        ConfigOptionDef def;
-            def.type =  coInt,
-            def.set_default_value(new ConfigOptionInt(1));
-            def.label = L("Extruders");
-            def.tooltip = L("Number of extruders of the printer.");
-            def.min = 1;
-            def.mode = comExpert;
-        Option option(def, "extruders_count");
+        
+        Option option(*this->m_extruders_count_def, "extruders_count");
         optgroup->append_single_option_line(option);
         optgroup->append_single_option_line("single_extruder_multi_material");
 
@@ -2042,7 +2087,12 @@ void TabPrinter::build_sla()
 
         return sizer;
     };
-    optgroup->append_line(line, &m_colored_Label);
+	wxStaticText* label;
+	optgroup->append_line(line, &label);
+	m_opt_parent_labels["bed_shape"] = label;
+	m_opt_parent_labels["bed_custom_texture"] = label;
+	m_opt_parent_labels["bed_custom_model"] = label;
+
     optgroup->append_single_option_line("max_print_height");
 
     optgroup = page->new_optgroup(_(L("Display")));
@@ -2862,46 +2912,82 @@ void Tab::select_preset(std::string preset_name, bool delete_current)
     }
 }
 
-// If the current preset is dirty, the user is asked whether the changes may be discarded.
+// If the current preset is dirty, the user is asked whether the changes may be discarded and can optionally save them.
 // if the current preset was not dirty, or the user agreed to discard the changes, 1 is returned.
 bool Tab::may_discard_current_dirty_preset(PresetCollection* presets /*= nullptr*/, const std::string& new_printer_name /*= ""*/)
 {
-    if (presets == nullptr) presets = m_presets;
-    // Display a dialog showing the dirty options in a human readable form.
-    const Preset& old_preset = presets->get_edited_preset();
-    std::string   type_name  = presets->name();
-    wxString      tab        = "          ";
-    wxString      name       = old_preset.is_default ?
-        wxString::Format(_(L("Default preset (%s)")), _(type_name)) :
-        wxString::Format(_(L("Preset (%s)")), _(type_name)) + "\n" + tab + old_preset.name;
+	Tab* tab;
+	if (presets == nullptr) {
+		presets = m_presets;
+		tab = this;
+	}
+	else {
+		tab = wxGetApp().find_tab_for_presets(presets);
+	}
 
-    // Collect descriptions of the dirty options.
-    wxString changes;
-    for (const std::string &opt_key : presets->current_dirty_options()) {
-        const ConfigOptionDef &opt = m_config->def()->options.at(opt_key);
-        /*std::string*/wxString name = "";
-        if (! opt.category.empty())
-            name += _(opt.category) + " > ";
-        name += !opt.full_label.empty() ?
-                _(opt.full_label) :
-                _(opt.label);
-        changes += tab + /*from_u8*/(name) + "\n";
-    }
-    // Show a confirmation dialog with the list of dirty options.
-    wxString message = name + "\n\n";
-    if (new_printer_name.empty())
-        message += _(L("has the following unsaved changes:"));
-    else {
-        message += (m_type == Slic3r::Preset::TYPE_PRINTER) ?
-                _(L("is not compatible with printer")) :
-                _(L("is not compatible with print profile"));
-        message += wxString("\n") + tab + from_u8(new_printer_name) + "\n\n";
-        message += _(L("and it has the following unsaved changes:"));
-    }
-    wxMessageDialog confirm(parent(),
-        message + "\n" + changes + "\n\n" + _(L("Discard changes and continue anyway?")),
-        _(L("Unsaved Changes")), wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION);
-    return confirm.ShowModal() == wxID_YES;
+	if (tab != nullptr) {
+		const Preset& old_preset = presets->get_edited_preset();
+		std::string   type_name = presets->name();
+
+		 std::string header = (old_preset.is_default ?
+			wxString::Format(_(L("Default preset (%s)")), _(type_name)) :
+			wxString::Format(_(L("Preset (%s)")), _(type_name))) + " \"" + old_preset.name + "\" ";
+
+		 if (new_printer_name.empty()) {
+			 header += _(L("has the following unsaved changes:"));
+		 } 
+		 else {
+
+			header += (m_type == Slic3r::Preset::TYPE_PRINTER) ?
+				_(L("is not compatible with printer")) :
+				_(L("is not compatible with print profile"));
+
+			header += " (\"" + from_u8(new_printer_name) + "\") ";
+			header += _(L("and it has the following unsaved changes:"));
+		}
+
+		UnsavedChangesDialog dialog(parent(), tab, header, wxString(SLIC3R_APP_NAME) + " - " + _(L("Unsaved Presets")));
+		return dialog.ShowModal() == wxID_YES;
+	}
+	else {
+		if (presets == nullptr) presets = m_presets;
+		// Display a dialog showing the dirty options in a human readable form.
+		const Preset& old_preset = presets->get_edited_preset();
+		std::string   type_name = presets->name();
+		wxString      tab = "          ";
+		wxString      name = old_preset.is_default ?
+			wxString::Format(_(L("Default preset (%s)")), _(type_name)) :
+			wxString::Format(_(L("Preset (%s)")), _(type_name)) + "\n" + tab + old_preset.name;
+
+		// Collect descriptions of the dirty options.
+		wxString changes;
+		for (const std::string& opt_key : presets->current_dirty_options()) {
+			const ConfigOptionDef& opt = m_config->def()->options.at(opt_key);
+			/*std::string*/wxString name = "";
+			if (!opt.category.empty())
+				name += _(opt.category) + " > ";
+			name += !opt.full_label.empty() ?
+				_(opt.full_label) :
+				_(opt.label);
+			changes += tab + /*from_u8*/(name)+"\n";
+		}
+		// Show a confirmation dialog with the list of dirty options.
+		wxString message = name + "\n\n";
+		if (new_printer_name.empty())
+			message += _(L("has the following unsaved changes:"));
+		else {
+			message += (m_type == Slic3r::Preset::TYPE_PRINTER) ?
+				_(L("is not compatible with printer")) :
+				_(L("is not compatible with print profile"));
+			message += wxString("\n") + tab + from_u8(new_printer_name) + "\n\n";
+			message += _(L("and it has the following unsaved changes:"));
+		}
+		wxMessageDialog dialog(parent(),
+			message + "\n" + changes + "\n\n" + _(L("Discard changes and continue anyway?")),
+			_(L("Unsaved Changes")), wxYES_NO | wxNO_DEFAULT | wxICON_QUESTION);
+
+		return dialog.ShowModal() == wxID_YES;
+	}
 }
 
 // If we are switching from the FFF-preset to the SLA, we should to control the printed objects if they have a part(s).
@@ -3016,57 +3102,36 @@ void Tab::save_preset(std::string name /*= ""*/)
         }
 
         SavePresetWindow dlg(parent());
-        dlg.build(title(), default_name, values);
+        dlg.build_entry(title(), default_name, values, m_presets);
         if (dlg.ShowModal() != wxID_OK)
             return;
         name = dlg.get_name();
-        if (name == "") {
-            show_error(this, _(L("The supplied name is empty. It can't be saved.")));
-            return;
-        }
-        const Preset *existing = m_presets->find_preset(name, false);
-        if (existing && (existing->is_default || existing->is_system)) {
-            show_error(this, _(L("Cannot overwrite a system profile.")));
-            return;
-        }
-        if (existing && (existing->is_external)) {
-            show_error(this, _(L("Cannot overwrite an external profile.")));
-            return;
-        }
-        if (existing/* && name != preset.name*/)
-        {
-            wxString msg_text = GUI::from_u8((boost::format(_utf8(L("Preset with name \"%1%\" already exist."))) % name).str());
-            msg_text += "\n" + _(L("Replace?"));
-            wxMessageDialog dialog(nullptr, msg_text, _(L("Warning")), wxICON_WARNING | wxYES | wxNO);
-
-            if (dialog.ShowModal() == wxID_NO)
-                return;
-
-            // Remove the preset from the list.
-            m_presets->delete_preset(name);
-        }
     }
 
     // Save the preset into Slic3r::data_dir / presets / section_name / preset_name.ini
     m_presets->save_current_preset(name);
-    // Mark the print & filament enabled if they are compatible with the currently selected preset.
-    m_preset_bundle->update_compatible(false);
-    // Add the new item into the UI component, remove dirty flags and activate the saved item.
-    update_tab_ui();
-    // Update the selection boxes at the platter.
-    on_presets_changed();
-    // If current profile is saved, "delete preset" button have to be enabled
-    m_btn_delete_preset->Enable(true);
+	update_after_preset_save();
+}
 
-    if (m_type == Preset::TYPE_PRINTER)
-        static_cast<TabPrinter*>(this)->m_initial_extruders_count = static_cast<TabPrinter*>(this)->m_extruders_count;
-    update_changed_ui();
+void Tab::update_after_preset_save(bool update_extr_count) {
+	// Mark the print & filament enabled if they are compatible with the currently selected preset.
+	m_preset_bundle->update_compatible(false);
+	// Add the new item into the UI component, remove dirty flags and activate the saved item.
+	update_tab_ui();
+	// Update the selection boxes at the platter.
+	on_presets_changed();
+	// If current profile is saved, "delete preset" button have to be enabled
+	m_btn_delete_preset->Enable(true);
 
-    /* If filament preset is saved for multi-material printer preset, 
-     * there are cases when filament comboboxs are updated for old (non-modified) colors, 
-     * but in full_config a filament_colors option aren't.*/
-    if (m_type == Preset::TYPE_FILAMENT && wxGetApp().extruders_edited_cnt() > 1)
-        wxGetApp().plater()->force_filament_colors_update();
+	if (m_type == Preset::TYPE_PRINTER && update_extr_count)
+		static_cast<TabPrinter*>(this)->m_initial_extruders_count = static_cast<TabPrinter*>(this)->m_extruders_count;
+	update_changed_ui();
+
+	/* If filament preset is saved for multi-material printer preset,
+	 * there are cases when filament comboboxs are updated for old (non-modified) colors,
+	 * but in full_config a filament_colors option aren't.*/
+	if (m_type == Preset::TYPE_FILAMENT && wxGetApp().extruders_edited_cnt() > 1)
+		wxGetApp().plater()->force_filament_colors_update();
 }
 
 // Called for a currently selected preset.
@@ -3293,6 +3358,17 @@ Field* Page::get_field(const t_config_option_key& opt_key, int opt_index /*= -1*
     return field;
 }
 
+const ConfigOptionsGroupShp Page::get_opt_group(const t_config_option_key& opt_key, int opt_index /*= -1*/) const
+{
+    Field* field = nullptr;
+    for (auto opt : m_optgroups) {
+		if (opt->has_opt(opt_key, opt_index)) {
+			return opt;
+		}
+    }
+    return nullptr;
+}
+
 bool Page::set_value(const t_config_option_key& opt_key, const boost::any& value) {
     bool changed = false;
     for(auto optgroup: m_optgroups) {
@@ -3367,63 +3443,190 @@ ConfigOptionsGroupShp Page::new_optgroup(const wxString& title, int noncommon_la
     return optgroup;
 }
 
-void SavePresetWindow::build(const wxString& title, const std::string& default_name, std::vector<std::string> &values)
+void SavePresetWindow::build_base_layout() {
+	auto buttons = CreateStdDialogButtonSizer(wxOK | wxCANCEL);
+
+	m_sizer = new wxBoxSizer(wxVERTICAL);
+	m_sizer->Add(buttons, 0, wxALIGN_CENTER_HORIZONTAL | wxALL, 10);
+
+	m_btn_accept = static_cast<wxButton*>(FindWindowById(wxID_OK, this));
+	m_btn_accept->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { accept(); });
+
+	SetSizer(m_sizer);
+
+	size_t em = Slic3r::GUI::wxGetApp().em_unit();
+	m_max_width = 30 * em;
+}
+
+void SavePresetWindow::build_entry(const wxString& title, const std::string& default_name, std::vector<std::string> &values, PresetCollection* presets, Tab* tab)
 {
+	size_t em = Slic3r::GUI::wxGetApp().em_unit();
     // TRN Preset
-    auto text = new wxStaticText(this, wxID_ANY, wxString::Format(_(L("Save %s as:")), title),
+    wxStaticText* text = new wxStaticText(this, wxID_ANY, wxString::Format(_(L("Save %s as:")), title),
                                     wxDefaultPosition, wxDefaultSize);
-    m_combo = new wxComboBox(this, wxID_ANY, from_u8(default_name),
-                            wxDefaultPosition, wxDefaultSize, 0, 0, wxTE_PROCESS_ENTER);
-    for (auto value : values)
-        m_combo->Append(from_u8(value));
-    auto buttons = CreateStdDialogButtonSizer(wxOK | wxCANCEL);
 
-    auto sizer = new wxBoxSizer(wxVERTICAL);
-    sizer->Add(text, 0, wxEXPAND | wxALL, 10);
-    sizer->Add(m_combo, 0, wxEXPAND | wxLEFT | wxRIGHT, 10);
-    sizer->Add(buttons, 0, wxALIGN_CENTER_HORIZONTAL | wxALL, 10);
+	wxBoxSizer* sizer = new wxBoxSizer(wxHORIZONTAL);
+		wxStaticBitmap* status_icon = new wxStaticBitmap(this, wxID_ANY, wxNullBitmap);
+		wxComboBox* combo = new wxComboBox(this, wxID_ANY, from_u8(default_name),
+									wxDefaultPosition, wxSize(m_max_width, -1), 0, 0, wxTE_PROCESS_ENTER);
+		for (auto value : values)
+			combo->Append(from_u8(value));
 
-    wxButton* btn = static_cast<wxButton*>(FindWindowById(wxID_OK, this));
-    btn->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { accept(); });
-    m_combo->Bind(wxEVT_TEXT_ENTER, [this](wxCommandEvent&) { accept(); });
+	sizer->Add(status_icon, 0, wxALIGN_CENTER_VERTICAL);
+	sizer->Add(combo, 0, wxLEFT | wxEXPAND, 5);
 
-    SetSizer(sizer);
-    sizer->SetSizeHints(this);
+	wxStaticText* status_text = new wxStaticText(this, wxID_ANY, "", wxDefaultPosition, wxSize(-1, 3 * em));
+
+	if (this->entries.size()) {
+		m_sizer->InsertSpacer(cur_entry_insert_offset, 10);
+	}
+
+	m_sizer->Insert(cur_entry_insert_offset++, text, 0, wxEXPAND | wxALL, 10);
+	m_sizer->Insert(cur_entry_insert_offset++, sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, 10);
+	m_sizer->Insert(cur_entry_insert_offset++, status_text, 0, wxALIGN_CENTER_HORIZONTAL |wxALL, 10);
+
+	this->entries.push_back(new Entry(combo, std::string(title), presets, status_icon, status_text, tab, m_max_width + 10));
+
+	combo->Bind(wxEVT_TEXT, [this, entry = entries.back()](wxCommandEvent& e){ On_combo_text(entry); });
+
+	On_combo_text(this->entries.back());
+}
+
+void SavePresetWindow::On_combo_text(Entry* entry) {
+	std::string chosen_name = normalize_utf8_nfc(entry->combo->GetValue().ToUTF8());
+
+	std::string errMsg;
+	std::string warningMsg;
+
+	entry->mustDeleteOld = false;
+
+	if (chosen_name.empty()) {
+		errMsg = _(L("The supplied name is empty. It can't be saved."));
+	}
+	else if (chosen_name == "- default -") {
+		errMsg += _(L("The supplied name is not available."));
+	}
+	else {
+		const char* unusable_symbols = "<>[]:/\\|?*\"";
+		bool is_unusable_symbol = false;
+		bool is_unusable_suffix = false;
+		const std::string unusable_suffix = PresetCollection::get_suffix_modified();//"(modified)";
+		for (size_t i = 0; i < std::strlen(unusable_symbols); i++) {
+			if (chosen_name.find_first_of(unusable_symbols[i]) != std::string::npos) {
+				is_unusable_symbol = true;
+				break;
+			}
+		}
+		if (chosen_name.find(unusable_suffix) != std::string::npos)
+			is_unusable_suffix = true;
+
+		if (is_unusable_symbol) {
+			errMsg = _(L("The supplied name is not valid;")) + "\n"
+				+ _(L("the following characters are not allowed:")) + " " + unusable_symbols;
+		}
+		else if (is_unusable_suffix) {
+			errMsg = _(L("The supplied name is not valid;")) + "\n"
+				+ _(L("the following suffix is not allowed:")) + "\n\t"
+				+ wxString::FromUTF8(unusable_suffix.c_str());
+		}
+		else {
+			const Preset* existing = entry->preset->find_preset(chosen_name, false);
+
+			if (existing && (existing->is_default || existing->is_system)) {
+				errMsg = _(L("Cannot overwrite a system profile."));
+			}
+			else if (existing && (existing->is_external)) {
+				errMsg = _(L("Cannot overwrite an external profile."));
+			}
+			else if (existing && chosen_name != entry->preset->get_selected_preset().name)
+			{
+				warningMsg = GUI::from_u8((boost::format(_utf8(L("Preset with name \"%1%\" already exists and will be overwritten."))) % chosen_name).str());
+				entry->mustDeleteOld = true;
+			}
+		}
+	}
+
+	std::string finalMsg;
+	wxBitmap icon;
+	wxFont font;
+
+	if (!errMsg.empty()) {
+		finalMsg = errMsg;
+		icon = m_icon_cross;
+		font = GUI::wxGetApp().normal_font();
+
+		entry->hasValidChosenName = false;
+	}
+	else if (!warningMsg.empty()) {
+		finalMsg = warningMsg;
+		icon = m_icon_warning;
+		font = GUI::wxGetApp().bold_font();
+
+		entry->hasValidChosenName = true;
+		entry->chosenName = chosen_name;
+	}
+	else {
+		finalMsg = _(L("The supplied name is valid."));
+		icon = m_icon_tick;
+		font = GUI::wxGetApp().normal_font();
+
+		entry->hasValidChosenName = true;
+		entry->chosenName = chosen_name;
+	}
+
+	if (finalMsg != entry->str_status_text) {
+		entry->str_status_text = finalMsg;
+
+		entry->setStatus(icon, finalMsg, font);
+
+		m_sizer->SetSizeHints(this);
+		this->Layout();
+	}
+
+	this->update_btn_accept();
+}
+
+void SavePresetWindow::update_btn_accept() {
+	for (Entry* cur_entry : entries) {
+		if (!cur_entry->hasValidChosenName) {
+			m_btn_accept->Enable(false);
+			return;
+		}
+	}
+	m_btn_accept->Enable();
 }
 
 void SavePresetWindow::accept()
 {
-    m_chosen_name = normalize_utf8_nfc(m_combo->GetValue().ToUTF8());
-    if (!m_chosen_name.empty()) {
-        const char* unusable_symbols = "<>[]:/\\|?*\"";
-        bool is_unusable_symbol = false;
-        bool is_unusable_suffix = false;
-        const std::string unusable_suffix = PresetCollection::get_suffix_modified();//"(modified)";
-        for (size_t i = 0; i < std::strlen(unusable_symbols); i++) {
-            if (m_chosen_name.find_first_of(unusable_symbols[i]) != std::string::npos) {
-                is_unusable_symbol = true;
-                break;
-            }
-        }
-        if (m_chosen_name.find(unusable_suffix) != std::string::npos)
-            is_unusable_suffix = true;
+	std::string msg_overwrite;
 
-        if (is_unusable_symbol) {
-            show_error(this,_(L("The supplied name is not valid;")) + "\n" +
-                            _(L("the following characters are not allowed:")) + " " + unusable_symbols);
-        }
-        else if (is_unusable_suffix) {
-            show_error(this,_(L("The supplied name is not valid;")) + "\n" +
-                            _(L("the following suffix is not allowed:")) + "\n\t" +
-                            wxString::FromUTF8(unusable_suffix.c_str()));
-        }
-        else if (m_chosen_name == "- default -") {
-            show_error(this, _(L("The supplied name is not available.")));
-        }
-        else {
-            EndModal(wxID_OK);
-        }
-    }
+	for(Entry* cur_entry : entries){
+		if (!cur_entry->hasValidChosenName) {
+			return;
+		}
+		if (cur_entry->mustDeleteOld) {
+			msg_overwrite += GUI::from_u8((boost::format(_utf8(L("%1%: \"%2%\"\n"))) % cur_entry->title % cur_entry->chosenName).str());
+		}
+	}
+
+	if (!msg_overwrite.empty()) {
+		msg_overwrite = _(L("Overwrite presets?")) + "\n" + msg_overwrite;
+
+		wxMessageDialog dialog(nullptr, msg_overwrite, _(L("Warning")), wxICON_WARNING | wxYES | wxNO);
+		if (dialog.ShowModal() == wxID_NO) {
+			return;
+		}
+		else {
+			for (Entry* cur_entry : entries) {
+				if (cur_entry->mustDeleteOld) {
+					// Remove the preset from the list.
+					cur_entry->preset->delete_preset(cur_entry->chosenName);
+				}
+			}
+		}
+	}
+
+	EndModal(wxID_OK);
 }
 
 void TabSLAMaterial::build()
@@ -3506,7 +3709,10 @@ void TabSLAMaterial::build()
     line.widget = [this](wxWindow* parent) {
         return compatible_widget_create(parent, m_compatible_printers);
     };
-    optgroup->append_line(line, &m_colored_Label);
+	wxStaticText* label;
+	optgroup->append_line(line, &label);
+	m_opt_parent_labels["compatible_printers"] = label;
+
     option = optgroup->get_option("compatible_printers_condition");
     option.opt.full_width = true;
     optgroup->append_single_option_line(option);
@@ -3515,7 +3721,9 @@ void TabSLAMaterial::build()
     line.widget = [this](wxWindow* parent) {
         return compatible_widget_create(parent, m_compatible_prints);
     };
-    optgroup->append_line(line, &m_colored_Label);
+	optgroup->append_line(line, &label);
+	m_opt_parent_labels["compatible_prints"] = label;
+
     option = optgroup->get_option("compatible_prints_condition");
     option.opt.full_width = true;
     optgroup->append_single_option_line(option);
@@ -3627,7 +3835,9 @@ void TabSLAPrint::build()
     line.widget = [this](wxWindow* parent) {
         return compatible_widget_create(parent, m_compatible_printers);
     };
-    optgroup->append_line(line, &m_colored_Label);
+	wxStaticText* label;
+	optgroup->append_line(line, &label);
+	m_opt_parent_labels["compatible_printers"] = label;
 
     option = optgroup->get_option("compatible_printers_condition");
     option.opt.full_width = true;

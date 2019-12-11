@@ -440,6 +440,26 @@ int copy_file(const std::string &from, const std::string &to)
     return 0;
 }
 
+void copy_dir_recursive(const boost::filesystem::path& src, const boost::filesystem::path& dst)
+{
+	if (boost::filesystem::exists(dst)) {
+		throw std::runtime_error(dst.generic_string() + " exists");
+	}
+
+	if (boost::filesystem::is_directory(src)) {
+		boost::filesystem::create_directories(dst);
+		for (boost::filesystem::directory_entry& item : boost::filesystem::directory_iterator(src)) {
+			copy_dir_recursive(item.path(), dst / item.path().filename());
+		}
+	}
+	else if (boost::filesystem::is_regular_file(src)) {
+		boost::filesystem::copy(src, dst);
+	}
+	else {
+		throw std::runtime_error(dst.generic_string() + " not dir or file");
+	}
+}
+
 // Ignore system and hidden files, which may be created by the DropBox synchronisation process.
 // https://github.com/prusa3d/PrusaSlicer/issues/1298
 bool is_plain_file(const boost::filesystem::directory_entry &dir_entry)

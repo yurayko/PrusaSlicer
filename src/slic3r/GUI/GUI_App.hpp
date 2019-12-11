@@ -154,8 +154,9 @@ public:
 	// Translate the language code to a code, for which Prusa Research maintains translations. Defaults to "en_US".
     wxString 		current_language_code_safe() const;
 
-    virtual bool OnExceptionInMainLoop() override;
+	Tab*			find_tab_for_presets(const PresetCollection* preset);
 
+    virtual bool OnExceptionInMainLoop() override;
 #ifdef __APPLE__
     // wxWidgets override to get an event on open files.
     void            MacOpenFiles(const wxArrayString &fileNames) override;
