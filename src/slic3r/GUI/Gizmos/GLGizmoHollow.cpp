@@ -604,7 +604,7 @@ void GLGizmoHollow::update_hollowed_mesh(std::unique_ptr<TriangleMesh> &&mesh)
                 holes_mesh.merge(hole_mesh);
                 //MeshBoolean::minus(*m_cavity_mesh.get(), hole_mesh);
             }
-            MeshBoolean::minus(*m_cavity_mesh.get(), holes_mesh);
+//            MeshBoolean::minus(*m_cavity_mesh.get(), holes_mesh);
         }
 
 

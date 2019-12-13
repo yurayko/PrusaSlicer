@@ -1,6 +1,7 @@
 #include "MeshBoolean.hpp"
 
 // Include igl first. It defines "L" macro which then clashes with our localization
+#undef PI
 #include <igl/copyleft/cgal/mesh_boolean.h>
 #undef L
 
@@ -38,7 +39,7 @@ void minus(TriangleMesh& A, const TriangleMesh& B)
     Eigen::MatrixXd VC;
     Eigen::MatrixXi FC;
     igl::MeshBooleanType boolean_type(igl::MESH_BOOLEAN_TYPE_MINUS);
-    igl::copyleft::cgal::mesh_boolean(VA, FA, VB, FB, boolean_type, VC, FC);
+//    igl::copyleft::cgal::mesh_boolean(VA, FA, VB, FB, boolean_type, VC, FC);
 
     A = eigen_to_triangle_mesh(VC, FC);
 }
@@ -53,7 +54,7 @@ void self_union(TriangleMesh& mesh)
     Eigen::MatrixXi FC;
 
     igl::MeshBooleanType boolean_type(igl::MESH_BOOLEAN_TYPE_UNION);
-    igl::copyleft::cgal::mesh_boolean(V, F, Eigen::MatrixXd(), Eigen::MatrixXi(), boolean_type, VC, FC);
+//    igl::copyleft::cgal::mesh_boolean(V, F, Eigen::MatrixXd(), Eigen::MatrixXi(), boolean_type, VC, FC);
     mesh = eigen_to_triangle_mesh(VC, FC);
 }
 
