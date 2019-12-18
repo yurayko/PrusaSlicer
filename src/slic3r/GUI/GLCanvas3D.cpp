@@ -79,6 +79,15 @@ static const size_t VERTEX_BUFFER_RESERVE_SIZE = 131072 * 2; // 1.05MB
 // Reserve size in number of floats, maximum sum of all preallocated buffers.
 static const size_t VERTEX_BUFFER_RESERVE_SIZE_SUM_MAX = 1024 * 1024 * 128 / 4; // 128MB
 
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
+static const int SLA_CAP_OBJ_BOTTOM_ID = -99900;
+static const int SLA_CAP_OBJ_TOP_ID = -99901;
+static const int SLA_CAP_SUPP_BOTTOM_ID = -99910;
+static const int SLA_CAP_SUPP_TOP_ID = -99911;
+#endif // ENABLE_DRAIN_HOLES_METHOD
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
 namespace Slic3r {
 namespace GUI {
 
@@ -1891,7 +1900,7 @@ void GLCanvas3D::render()
 
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 #if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-    _render_sla_slices();
+    _update_sla_cap_volumes();
 #endif // ENABLE_DRAIN_HOLES_METHOD
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     _render_objects();
@@ -5085,14 +5094,11 @@ void GLCanvas3D::_render_camera_target() const
 }
 #endif // ENABLE_SHOW_CAMERA_TARGET
 
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_DRAIN_HOLES_METHOD != DRAIN_HOLES_WITH_SHADERS
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 void GLCanvas3D::_render_sla_slices() const
 {
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-    static const double plane_shift_z = 0.02;
-#endif // ENABLE_DRAIN_HOLES_METHOD
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-
     if (!m_use_clipping_planes || wxGetApp().preset_bundle->printers.get_edited_preset().printer_technology() != ptSLA)
         return;
 
@@ -5113,12 +5119,6 @@ void GLCanvas3D::_render_sla_slices() const
 
         SlaCap::ObjectIdToTrianglesMap::iterator it_caps_bottom = m_sla_caps[0].triangles.find(i);
         SlaCap::ObjectIdToTrianglesMap::iterator it_caps_top    = m_sla_caps[1].triangles.find(i);
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-        SlaCap::ObjectIdToVolumeIdxMap::iterator it_volume_bottom = m_sla_caps[0].volumes.find(i);
-        SlaCap::ObjectIdToVolumeIdxMap::iterator it_volume_top = m_sla_caps[1].volumes.find(i);
-#endif // ENABLE_DRAIN_HOLES_METHOD
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         {
 			if (it_caps_bottom == m_sla_caps[0].triangles.end())
 				it_caps_bottom = m_sla_caps[0].triangles.emplace(i, SlaCap::Triangles()).first;
@@ -5157,13 +5157,7 @@ void GLCanvas3D::_render_sla_slices() const
             const SliceRecord& slice_high = obj->closest_slice_to_print_level(key_high, coord_t(SCALED_EPSILON));
 
             // Offset to avoid OpenGL Z fighting between the object's horizontal surfaces and the triangluated surfaces of the cuts.
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#if ENABLE_DRAIN_HOLES_METHOD != DRAIN_HOLES_WITH_SHADERS
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
             double plane_shift_z = 0.002;
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#endif // ENABLE_DRAIN_HOLES_METHOD
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
             if (slice_low.is_valid()) {
                 const ExPolygons& obj_bottom = slice_low.get_slice(soModel);
@@ -5203,49 +5197,11 @@ void GLCanvas3D::_render_sla_slices() const
 				if (!bottom_obj_triangles.empty()) {
                     glsafe(::glVertexPointer(3, GL_DOUBLE, 0, (GLdouble*)bottom_obj_triangles.front().data()));
                     glsafe(::glDrawArrays(GL_TRIANGLES, 0, bottom_obj_triangles.size()));
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-                    if (it_volume_bottom != m_sla_caps[0].volumes.end())
-                    {
-                        GLVolume* v = m_volumes.volumes[it_volume_bottom->second];
-                        v->set_volume_offset((clip_min_z - v->get_sla_shift_z()) * Vec3d::UnitZ());
-                        v->is_active = true;
-                    }
-#endif // ENABLE_DRAIN_HOLES_METHOD
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
                 }
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-                else
-                {
-                    if (it_volume_bottom != m_sla_caps[0].volumes.end())
-                        m_volumes.volumes[it_volume_bottom->second]->is_active = false;
-                }
-#endif // ENABLE_DRAIN_HOLES_METHOD
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
                 if (! top_obj_triangles.empty()) {
                     glsafe(::glVertexPointer(3, GL_DOUBLE, 0, (GLdouble*)top_obj_triangles.front().data()));
                     glsafe(::glDrawArrays(GL_TRIANGLES, 0, top_obj_triangles.size()));
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-                    if (it_volume_top != m_sla_caps[1].volumes.end())
-                    {
-                        GLVolume* v = m_volumes.volumes[it_volume_top->second];
-                        v->set_volume_offset((clip_max_z - v->get_sla_shift_z()) * Vec3d::UnitZ());
-                        v->is_active = true;
-                    }
-#endif // ENABLE_DRAIN_HOLES_METHOD
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
                 }
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-                else
-                {
-                    if (it_volume_top != m_sla_caps[1].volumes.end())
-                        m_volumes.volumes[it_volume_top->second]->is_active = false;
-                }
-#endif // ENABLE_DRAIN_HOLES_METHOD
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
                 glsafe(::glColor3f(1.0f, 0.0f, 0.37f));
 				if (! bottom_sup_triangles.empty()) {
                     glsafe(::glVertexPointer(3, GL_DOUBLE, 0, (GLdouble*)bottom_sup_triangles.front().data()));
@@ -5261,11 +5217,136 @@ void GLCanvas3D::_render_sla_slices() const
         }
     }
 }
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#endif // ENABLE_DRAIN_HOLES_METHOD
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 void GLCanvas3D::_render_selection_sidebar_hints() const
 {
     m_selection.render_sidebar_hints(m_sidebar_field, m_shader);
 }
+
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
+void GLCanvas3D::_update_sla_cap_volumes()
+{
+    auto update_volume = [this](GLVolume* volume, const Pointf3s& triangles) -> bool {
+        volume->release_geometry();
+        if ((triangles.size() > 2) && (triangles.size() % 3 == 0))
+        {
+            Vec3d first_normal = (triangles[1] - triangles[0]).cross(triangles[2] - triangles[0]).normalized();
+            for (size_t i = 0; i < triangles.size(); i += 3)
+            {
+                const Vec3d& v0 = triangles[i + 0];
+                const Vec3d& v1 = triangles[i + 1];
+                const Vec3d& v2 = triangles[i + 2];
+
+                volume->indexed_vertex_array.push_geometry(v0, first_normal);
+                volume->indexed_vertex_array.push_geometry(v1, first_normal);
+                volume->indexed_vertex_array.push_geometry(v2, first_normal);
+
+                volume->indexed_vertex_array.push_triangle(i, i + 1, i + 2);
+            }
+
+            volume->finalize_geometry(this->m_initialized);
+            return true;
+        }
+        return false;
+    };
+
+    if (wxGetApp().preset_bundle->printers.get_edited_preset().printer_technology() != ptSLA)
+        return;
+
+    const SLAPrint* print = this->sla_print();
+    const PrintObjects& print_objects = print->objects();
+    if (print_objects.empty())
+        return;
+
+    struct CapVolumeIdxs
+    {
+        int obj_bottom{ -1 };
+        int obj_top{ -1 };
+        int supp_bottom{ -1 };
+        int supp_top{ -1 };
+    };
+    std::vector<CapVolumeIdxs> objects_caps(print_objects.size(), CapVolumeIdxs());
+
+    double clip_min_z = -m_clipping_planes[0].get_data()[3];
+    double clip_max_z = m_clipping_planes[1].get_data()[3];
+    for (size_t i = 0; i < print_objects.size(); ++i)
+    {
+        const SLAPrintObject* obj = print_objects[i];
+
+        if (!obj->is_step_done(slaposSliceSupports))
+            continue;
+
+        if (!obj->get_slice_index().empty())
+        {
+            CapVolumeIdxs& cap_volume_idxs = objects_caps[i];
+
+            for (int j = 0; j < (int)m_volumes.volumes.size(); ++j)
+            {
+                GLVolume* volume = m_volumes.volumes[j];
+                if (volume->object_idx() == (int)i)
+                {
+                    if (volume->composite_id.volume_id == SLA_CAP_OBJ_BOTTOM_ID)
+                        cap_volume_idxs.obj_bottom = j;
+                    else if (volume->composite_id.volume_id == SLA_CAP_OBJ_TOP_ID)
+                        cap_volume_idxs.obj_top = j;
+                    else if (volume->composite_id.volume_id == SLA_CAP_SUPP_BOTTOM_ID)
+                        cap_volume_idxs.supp_bottom = j;
+                    else if (volume->composite_id.volume_id == SLA_CAP_SUPP_TOP_ID)
+                        cap_volume_idxs.supp_top = j;
+                }
+            }
+
+            if ((cap_volume_idxs.obj_bottom == -1) && (cap_volume_idxs.obj_top == -1) && (cap_volume_idxs.supp_bottom == -1) && (cap_volume_idxs.supp_top == -1))
+                // no caps to update
+                continue;
+
+            double layer_height = print->default_object_config().layer_height.value;
+            double initial_layer_height = print->material_config().initial_layer_height.value;
+            bool   left_handed = obj->is_left_handed();
+
+            coord_t key_zero = obj->get_slice_index().front().print_level();
+            // Slice at the center of the slab starting at clip_min_z will be rendered for the lower plane.
+            coord_t key_low = coord_t((clip_min_z - initial_layer_height + layer_height) / SCALING_FACTOR) + key_zero;
+            // Slice at the center of the slab ending at clip_max_z will be rendered for the upper plane.
+            coord_t key_high = coord_t((clip_max_z - initial_layer_height) / SCALING_FACTOR) + key_zero;
+
+            const SliceRecord& slice_low = obj->closest_slice_to_print_level(key_low, coord_t(SCALED_EPSILON));
+            const SliceRecord& slice_high = obj->closest_slice_to_print_level(key_high, coord_t(SCALED_EPSILON));
+
+            if (slice_low.is_valid())
+            {
+                if (cap_volume_idxs.obj_bottom != -1)
+                    m_volumes.volumes[cap_volume_idxs.obj_bottom]->is_active = update_volume(m_volumes.volumes[cap_volume_idxs.obj_bottom], triangulate_expolygons_3d(slice_low.get_slice(soModel), clip_min_z, !left_handed));
+                if (cap_volume_idxs.supp_bottom != -1)
+                    m_volumes.volumes[cap_volume_idxs.supp_bottom]->is_active = update_volume(m_volumes.volumes[cap_volume_idxs.supp_bottom], triangulate_expolygons_3d(slice_low.get_slice(soSupport), clip_min_z, !left_handed));
+            }
+            else
+            {
+                m_volumes.volumes[cap_volume_idxs.obj_bottom]->is_active = false;
+                m_volumes.volumes[cap_volume_idxs.supp_bottom]->is_active = false;
+            }
+
+            if (slice_high.is_valid())
+            {
+                if (cap_volume_idxs.obj_top != -1)
+                    m_volumes.volumes[cap_volume_idxs.obj_top]->is_active = update_volume(m_volumes.volumes[cap_volume_idxs.obj_top], triangulate_expolygons_3d(slice_high.get_slice(soModel), clip_max_z, left_handed));
+                if (cap_volume_idxs.supp_top != -1)
+                    m_volumes.volumes[cap_volume_idxs.supp_top]->is_active = update_volume(m_volumes.volumes[cap_volume_idxs.supp_top], triangulate_expolygons_3d(slice_high.get_slice(soSupport), clip_max_z, left_handed));
+            }
+            else
+            {
+                m_volumes.volumes[cap_volume_idxs.obj_top]->is_active = false;
+                m_volumes.volumes[cap_volume_idxs.supp_top]->is_active = false;
+            }
+        }
+    }
+}
+#endif // ENABLE_DRAIN_HOLES_METHOD
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
 void GLCanvas3D::_update_volumes_hover_state() const
 {
@@ -6277,28 +6358,42 @@ void GLCanvas3D::_load_sla_shells()
         // nothing to render, return
         return;
 
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
+    auto add_volume = [this](const SLAPrintObject& object, int object_id, int volume_id, const Geometry::Transformation& instance_transform,
+        const TriangleMesh& mesh, const sla::DrainHoles* drain_holes, const float color[4], bool outside_printer_detection_enabled) {
+#else
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     auto add_volume = [this](const SLAPrintObject &object, int volume_id, const SLAPrintObject::Instance& instance,
         const TriangleMesh &mesh, const float color[4], bool outside_printer_detection_enabled) {
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#endif // ENABLE_DRAIN_HOLES_METHOD
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         m_volumes.volumes.emplace_back(new GLVolume(color));
         GLVolume& v = *m_volumes.volumes.back();
         v.indexed_vertex_array.load_mesh(mesh);
         v.indexed_vertex_array.finalize_geometry(this->m_initialized);
         v.shader_outside_printer_detection_enabled = outside_printer_detection_enabled;
         v.composite_id.volume_id = volume_id;
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
+        v.composite_id.object_id = object_id;
+        v.set_instance_transformation(instance_transform);
+#else
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         v.set_instance_offset(unscale(instance.shift(0), instance.shift(1), 0));
         v.set_instance_rotation(Vec3d(0.0, 0.0, (double)instance.rotation));
         v.set_instance_mirror(X, object.is_left_handed() ? -1. : 1.);
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#endif // ENABLE_DRAIN_HOLES_METHOD
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         v.set_convex_hull(mesh.convex_hull_3d());
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 #if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
         if (volume_id >= 0)
         {
-            v.drain_holes = object.transformed_drainhole_points();
-            Transform3f instance_matrix = v.get_instance_transformation().get_matrix().cast<float>();
-            for (sla::DrainHole& hole : v.drain_holes)
-            {
-                hole.pos = instance_matrix * hole.pos;
-            }
+            if (drain_holes != nullptr)
+                v.drain_holes = *drain_holes;
         }
 #endif // ENABLE_DRAIN_HOLES_METHOD 
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -6306,75 +6401,106 @@ void GLCanvas3D::_load_sla_shells()
 
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 #if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-    auto add_caps_volumes = [this](const SLAPrintObject& object, const SLAPrintObject::Instance& instance,
-        const float color[4], bool outside_printer_detection_enabled) {
-            const Vec3d& box_size = object.model_object()->bounding_box().size();
-//            const BoundingBoxf3& box = object.model_object()->bounding_box();
-            TriangleMesh mesh(
-                { Vec3d(-0.5 * box_size(0), -0.5 * box_size(1), 0.0), Vec3d(0.5 * box_size(0), -0.5 * box_size(1), 0.0), Vec3d(0.5 * box_size(0), 0.5 * box_size(1), 0.0), Vec3d(-0.5 * box_size(0), 0.5 * box_size(1), 0.0) },
-                { Vec3crd(0, 1, 2), Vec3crd(2, 3, 0) });
-//                { Vec3d(box.min(0), box.min(1), 0.0), Vec3d(box.max(0), box.min(1), 0.0), Vec3d(box.max(0), box.max(1), 0.0), Vec3d(box.min(0), box.max(1), 0.0) },
-//                { Vec3crd(0, 1, 2), Vec3crd(2, 3, 0) } );
+    auto add_caps_volumes = [this](const SLAPrintObject& object, int object_id, const Geometry::Transformation& instance_transform, const sla::DrainHoles* drain_holes) {
+        float obj_color[4] = { 1.0f, 0.37f, 0.0f, 1.0f };
+        float supp_color[4] = { 1.0f, 0.0f, 0.37f, 1.0f };
 
-            m_volumes.volumes.emplace_back(new GLVolume(color));
-            GLVolume& bottom_v = *m_volumes.volumes.back();
-            m_volumes.volumes.emplace_back(new GLVolume(color));
-            GLVolume& top_v = *m_volumes.volumes.back();
+        m_volumes.volumes.emplace_back(new GLVolume(obj_color));
+        GLVolume& obj_bottom_cap = *m_volumes.volumes.back();
+        m_volumes.volumes.emplace_back(new GLVolume(obj_color));
+        GLVolume& obj_top_cap = *m_volumes.volumes.back();
+        m_volumes.volumes.emplace_back(new GLVolume(supp_color));
+        GLVolume& supp_bottom_cap = *m_volumes.volumes.back();
+        m_volumes.volumes.emplace_back(new GLVolume(supp_color));
+        GLVolume& supp_top_cap = *m_volumes.volumes.back();
 
-            bottom_v.indexed_vertex_array.load_mesh(mesh);
-            bottom_v.indexed_vertex_array.finalize_geometry(this->m_initialized);
-            bottom_v.shader_outside_printer_detection_enabled = outside_printer_detection_enabled;
-            bottom_v.composite_id.volume_id = -9999;
-            bottom_v.set_instance_offset(unscale(instance.shift(0), instance.shift(1), 0));
-            bottom_v.set_instance_rotation(Vec3d(0.0, 0.0, (double)instance.rotation));
-            bottom_v.set_instance_mirror(X, object.is_left_handed() ? -1. : 1.);
-            bottom_v.set_volume_rotation(X, M_PI);
-            bottom_v.set_convex_hull(mesh);
-            bottom_v.is_active = false;
+        obj_bottom_cap.shader_outside_printer_detection_enabled = false;
+        obj_bottom_cap.composite_id.volume_id = SLA_CAP_OBJ_BOTTOM_ID;
+        obj_bottom_cap.composite_id.object_id = object_id;
+        obj_bottom_cap.set_instance_transformation(instance_transform);
+        obj_bottom_cap.is_active = false;
+        if (drain_holes != nullptr)
+            obj_bottom_cap.drain_holes = *drain_holes;
 
-            top_v.indexed_vertex_array.load_mesh(mesh);
-            top_v.indexed_vertex_array.finalize_geometry(this->m_initialized);
-            top_v.shader_outside_printer_detection_enabled = outside_printer_detection_enabled;
-            top_v.composite_id.volume_id = -9998;
-            top_v.set_instance_offset(unscale(instance.shift(0), instance.shift(1), 0));
-            top_v.set_instance_rotation(Vec3d(0.0, 0.0, (double)instance.rotation));
-            top_v.set_instance_mirror(X, object.is_left_handed() ? -1. : 1.);
-            top_v.set_convex_hull(mesh);
-            top_v.is_active = false;
+        obj_top_cap.shader_outside_printer_detection_enabled = false;
+        obj_top_cap.composite_id.volume_id = SLA_CAP_OBJ_TOP_ID;
+        obj_top_cap.composite_id.object_id = object_id;
+        obj_top_cap.set_instance_transformation(instance_transform);
+        obj_top_cap.is_active = false;
+        if (drain_holes != nullptr)
+            obj_top_cap.drain_holes = *drain_holes;
 
-            sla::DrainHoles holes = object.transformed_drainhole_points();
-            Transform3f instance_matrix = bottom_v.get_instance_transformation().get_matrix().cast<float>();
-            for (sla::DrainHole& hole : holes)
-            {
-                hole.pos = instance_matrix * hole.pos;
-            }
+        supp_bottom_cap.shader_outside_printer_detection_enabled = false;
+        supp_bottom_cap.composite_id.volume_id = SLA_CAP_SUPP_BOTTOM_ID;
+        supp_bottom_cap.composite_id.object_id = object_id;
+        supp_bottom_cap.set_instance_transformation(instance_transform);
+        supp_bottom_cap.is_active = false;
 
-            bottom_v.drain_holes = holes;
-            top_v.drain_holes = holes;
+        supp_top_cap.shader_outside_printer_detection_enabled = false;
+        supp_top_cap.composite_id.volume_id = SLA_CAP_SUPP_TOP_ID;
+        supp_top_cap.composite_id.object_id = object_id;
+        supp_top_cap.set_instance_transformation(instance_transform);
+        supp_top_cap.is_active = false;
     };
-#endif // ENABLE_DRAIN_HOLES_METHOD 
+#endif // ENABLE_DRAIN_HOLES_METHOD
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     // adds objects' volumes 
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 #if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-    unsigned int obj_idx = 0;
-#endif // ENABLE_DRAIN_HOLES_METHOD
+    for (int i = 0; i < (int)print->objects().size(); ++i)
+    {
+        const SLAPrintObject* obj = print->objects()[i];
+#else
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     for (const SLAPrintObject* obj : print->objects())
     {
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#endif // ENABLE_DRAIN_HOLES_METHOD
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         if (obj->is_step_done(slaposSliceSupports)) {
             unsigned int initial_volumes_count = (unsigned int)m_volumes.volumes.size();
-            for (const SLAPrintObject::Instance& instance : obj->instances()) {
-                add_volume(*obj, 0, instance, obj->transformed_mesh(), GLVolume::MODEL_COLOR[0], true);
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 #if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-                add_caps_volumes(*obj, instance, GLVolume::MODEL_COLOR[0], true);
-                m_sla_caps[0].volumes[obj_idx] = (int)m_volumes.volumes.size() - 2;
-                m_sla_caps[1].volumes[obj_idx] = (int)m_volumes.volumes.size() - 1;
-                m_volumes.volumes[(int)m_volumes.volumes.size() - 2]->extruder_id = obj->model_object()->volumes.front()->extruder_id();
-                m_volumes.volumes[(int)m_volumes.volumes.size() - 1]->extruder_id = obj->model_object()->volumes.front()->extruder_id();
+            sla::DrainHoles drain_holes = obj->transformed_drainhole_points();
+            Vec3f shift = (float)obj->get_current_elevation() * Vec3f::UnitZ();
+#endif // ENABLE_DRAIN_HOLES_METHOD 
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
+            for (const SLAPrintObject::Instance& instance : obj->instances()) {
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
+                Geometry::Transformation instance_transform;
+                instance_transform.set_offset(unscale(instance.shift(0), instance.shift(1), 0));
+                instance_transform.set_rotation(Vec3d(0.0, 0.0, (double)instance.rotation));
+                instance_transform.set_mirror(X, obj->is_left_handed() ? -1.0 : 1.0);
+                Transform3f instance_matrix = instance_transform.get_matrix().cast<float>();
+                sla::DrainHoles inst_drain_holes = drain_holes;
+                for (sla::DrainHole& hole : inst_drain_holes)
+                {
+                    hole.pos = instance_matrix * hole.pos + shift;
+                }
+
+                TriangleMesh mesh = obj->transformed_mesh();
+                if (!obj->hollowed_interior_mesh().empty())
+                    mesh.merge(obj->hollowed_interior_mesh());
+
+                // add the caps volumes. at this stage the geometry is undefined, it will be updated by _update_sla_cap_volumes()
+                add_caps_volumes(*obj, i, instance_transform, &inst_drain_holes);
+                add_volume(*obj, i, 0, instance_transform, mesh, &inst_drain_holes, GLVolume::MODEL_COLOR[0], true);
+#else
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+                add_volume(*obj, 0, instance, obj->transformed_mesh(), GLVolume::MODEL_COLOR[0], true);
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 #endif // ENABLE_DRAIN_HOLES_METHOD
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
+                if (obj->is_step_done(slaposSupportTree) && obj->has_mesh(slaposSupportTree))
+                    add_volume(*obj, i, -int(slaposSupportTree), instance_transform, obj->support_mesh(), nullptr, GLVolume::SLA_SUPPORT_COLOR, true);
+                if (obj->is_step_done(slaposPad) && obj->has_mesh(slaposPad))
+                    add_volume(*obj, i, -int(slaposPad), instance_transform, obj->pad_mesh(), nullptr, GLVolume::SLA_PAD_COLOR, false);
+#else
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
                 if (!obj->hollowed_interior_mesh().empty())
                     add_volume(*obj, -int(slaposHollowing), instance, obj->hollowed_interior_mesh(), GLVolume::MODEL_COLOR[0], false);
@@ -6385,19 +6511,36 @@ void GLCanvas3D::_load_sla_shells()
                     add_volume(*obj, -int(slaposSupportTree), instance, obj->support_mesh(), GLVolume::SLA_SUPPORT_COLOR, true);
                 if (obj->is_step_done(slaposPad) && obj->has_mesh(slaposPad))
                     add_volume(*obj, -int(slaposPad), instance, obj->pad_mesh(), GLVolume::SLA_PAD_COLOR, false);
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#endif // ENABLE_DRAIN_HOLES_METHOD
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
             }
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_DRAIN_HOLES_METHOD != DRAIN_HOLES_WITH_SHADERS
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
             double shift_z = obj->get_current_elevation();
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#endif // ENABLE_DRAIN_HOLES_METHOD
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
+            for (size_t j = initial_volumes_count; j < m_volumes.volumes.size(); ++j) {
+                GLVolume& v = *m_volumes.volumes[j];
+                // cap volumes are already in world coordinate, no z shift required for them
+                if (v.composite_id.volume_id > -99900)
+                    // apply shift z
+                    v.set_sla_shift_z((double)shift(2));
+#else
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
             for (unsigned int i = initial_volumes_count; i < m_volumes.volumes.size(); ++i) {
                 GLVolume& v = *m_volumes.volumes[i];
                 // apply shift z
                 v.set_sla_shift_z(shift_z);
-            }
-        }
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-        ++obj_idx;
 #endif // ENABLE_DRAIN_HOLES_METHOD
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+            }
+        }
     }
 
     update_volumes_colors_by_extruder();

@@ -655,11 +655,23 @@ void GLVolumeCollection::render(GLVolumeCollection::ERenderType type, bool disab
 #endif // ENABLE_DRAIN_HOLES_METHOD
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 {
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
+    static const float dummy_z_range[2] = { -FLT_MAX, FLT_MAX };
+#endif // ENABLE_DRAIN_HOLES_METHOD
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+
     glsafe(::glEnable(GL_BLEND));
     glsafe(::glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
 
     glsafe(::glCullFace(GL_BACK));
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_DRAIN_HOLES_METHOD != DRAIN_HOLES_WITH_SHADERS
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     if (disable_cullface)
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#endif // ENABLE_DRAIN_HOLES_METHOD
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         glsafe(::glDisable(GL_CULL_FACE));
 
     glsafe(::glEnableClientState(GL_VERTEX_ARRAY));
@@ -667,29 +679,13 @@ void GLVolumeCollection::render(GLVolumeCollection::ERenderType type, bool disab
  
     GLint current_program_id;
     glsafe(::glGetIntegerv(GL_CURRENT_PROGRAM, &current_program_id));
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#if ENABLE_DRAIN_HOLES_METHOD != DRAIN_HOLES_WITH_SHADERS
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     GLint color_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "uniform_color") : -1;
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#endif // ENABLE_DRAIN_HOLES_METHOD
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     GLint z_range_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "z_range") : -1;
     GLint clipping_plane_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "clipping_plane") : -1;
     GLint print_box_min_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "print_box.min") : -1;
     GLint print_box_max_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "print_box.max") : -1;
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-    GLint camera_world_position_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "camera_world_position") : -1;
-    GLint view_matrix_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "view_matrix") : -1;
-    GLint projection_view_matrix_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "projection_view_matrix") : -1;
-#else
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     GLint print_box_detection_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "print_box.volume_detection") : -1;
     GLint print_box_worldmatrix_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "print_box.volume_world_matrix") : -1;
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#endif // ENABLE_DRAIN_HOLES_METHOD
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     glcheck();
 
     if (print_box_min_id != -1)
@@ -698,71 +694,68 @@ void GLVolumeCollection::render(GLVolumeCollection::ERenderType type, bool disab
     if (print_box_max_id != -1)
         glsafe(::glUniform3fv(print_box_max_id, 1, (const GLfloat*)print_box_max));
 
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_DRAIN_HOLES_METHOD != DRAIN_HOLES_WITH_SHADERS
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     if (z_range_id != -1)
         glsafe(::glUniform2fv(z_range_id, 1, (const GLfloat*)z_range));
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#endif // ENABLE_DRAIN_HOLES_METHOD
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     if (clipping_plane_id != -1)
         glsafe(::glUniform4fv(clipping_plane_id, 1, (const GLfloat*)clipping_plane));
-
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-    if (camera_world_position_id != -1)
-    {
-        Vec3f pos = view_matrix.matrix().inverse().block(0, 3, 3, 1).cast<float>();
-        glsafe(::glUniform3fv(camera_world_position_id, 1, (const GLfloat*)pos.data()));
-    }
-
-    if (view_matrix_id != -1)
-        glsafe(::glUniformMatrix4fv(view_matrix_id, 1, GL_FALSE, (const GLfloat*)view_matrix.cast<float>().data()));
-
-    if (projection_view_matrix_id != -1)
-    {
-        Transform3d matrix = proj_matrix * view_matrix;
-        glsafe(::glUniformMatrix4fv(projection_view_matrix_id, 1, GL_FALSE, (const GLfloat*)matrix.cast<float>().data()));
-    }
-#endif // ENABLE_DRAIN_HOLES_METHOD
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
     GLVolumeWithIdAndZList to_render = volumes_to_render(this->volumes, type, view_matrix, filter_func);
     for (GLVolumeWithIdAndZ& volume : to_render) {
         volume.first->set_render_color();
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 #if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-        GLint color_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "uniform_color") : -1;
         if (color_id >= 0)
             glsafe(::glUniform4fv(color_id, 1, (const GLfloat*)volume.first->render_color));
         else
             glsafe(::glColor4fv(volume.first->render_color));
 
-        GLint print_box_detection_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "print_box.volume_detection") : -1;
         if (print_box_detection_id != -1)
             glsafe(::glUniform1i(print_box_detection_id, volume.first->shader_outside_printer_detection_enabled ? 1 : 0));
 
-        GLint print_box_worldmatrix_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "print_box.volume_world_matrix") : -1;
         if (print_box_worldmatrix_id != -1)
             glsafe(::glUniformMatrix4fv(print_box_worldmatrix_id, 1, GL_FALSE, (const GLfloat*)volume.first->world_matrix().cast<float>().data()));
+
+        if (z_range_id != -1)
+        {
+            if (volume.first->volume_idx() <= -99900)
+                // to avoid support and object caps being clipped by the clipping z planes
+                glsafe(::glUniform2fv(z_range_id, 1, (const GLfloat*)dummy_z_range));
+            else
+                glsafe(::glUniform2fv(z_range_id, 1, (const GLfloat*)z_range));
+        }
+
+        if (volume.first->volume_idx() <= -99910)
+        {
+            // to avoid z-fighting between support and object caps
+            glsafe(::glEnable(GL_POLYGON_OFFSET_FILL));
+            glsafe(::glPolygonOffset(-1.0f, -1.0f));
+        }
+        else if (volume.first->volume_idx() <= -99900)
+        {
+            // to avoid z-fighting between object caps and objects
+            glsafe(::glEnable(GL_POLYGON_OFFSET_FILL));
+            glsafe(::glPolygonOffset(-0.5f, -0.5f));
+        }
 
         GLint drills_count_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "drills_count") : -1;
         if (drills_count_id != -1)
         {
-            bool cullface_enabled = ::glIsEnabled(GL_CULL_FACE);
-            if (cullface_enabled)
-                glsafe(::glDisable(GL_CULL_FACE));
-
             glsafe(::glUniform1i(drills_count_id, (GLint)volume.first->drain_holes.size()));
-
-            GLint inside_drill_only_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, "inside_drill_only") : -1;
-            if (inside_drill_only_id != -1)
-                glsafe(::glUniform1i(inside_drill_only_id, volume.first->composite_id.volume_id < -9000 ? 1 : 0));
 
             for (size_t i = 0; i < volume.first->drain_holes.size(); ++i)
             {
                 const sla::DrainHole& hole = volume.first->drain_holes[i];
-                Vec3f position = hole.pos + (float)volume.first->get_sla_shift_z() * Vec3f::UnitZ();
                 std::string base = "drills[" + std::to_string(i) + "].";
                 GLint drill_position_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, (base + "position").c_str()) : -1;
                 if (drill_position_id != -1)
-                    glsafe(::glUniform3fv(drill_position_id, 1, (const GLfloat*)position.data()));
+                    glsafe(::glUniform3fv(drill_position_id, 1, (const GLfloat*)hole.pos.data()));
                 GLint drill_axis_z_id = (current_program_id > 0) ? ::glGetUniformLocation(current_program_id, (base + "axis_z").c_str()) : -1;
                 if (drill_axis_z_id != -1)
                     glsafe(::glUniform3fv(drill_axis_z_id, 1, (const GLfloat*)hole.normal.data()));
@@ -773,12 +766,12 @@ void GLVolumeCollection::render(GLVolumeCollection::ERenderType type, bool disab
                 if (drill_height_id != -1)
                     glsafe(::glUniform1f(drill_height_id, (GLfloat)hole.height));
             }
-
-            if (cullface_enabled)
-                glsafe(::glEnable(GL_CULL_FACE));
         }
 
         volume.first->render();
+
+        if (volume.first->volume_idx() <= -99900)
+            glsafe(::glDisable(GL_POLYGON_OFFSET_FILL));
 #else
 //@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         volume.first->render(color_id, print_box_detection_id, print_box_worldmatrix_id);
@@ -793,7 +786,13 @@ void GLVolumeCollection::render(GLVolumeCollection::ERenderType type, bool disab
     glsafe(::glDisableClientState(GL_VERTEX_ARRAY));
     glsafe(::glDisableClientState(GL_NORMAL_ARRAY));
 
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#if ENABLE_DRAIN_HOLES_METHOD != DRAIN_HOLES_WITH_SHADERS
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
     if (disable_cullface)
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+#endif // ENABLE_DRAIN_HOLES_METHOD
+//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         glsafe(::glEnable(GL_CULL_FACE));
 
     glsafe(::glDisable(GL_BLEND));
@@ -913,17 +912,8 @@ void GLVolumeCollection::update_colors_by_extruder(const DynamicPrintConfig* con
 
     for (GLVolume* volume : volumes)
     {
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#if ENABLE_DRAIN_HOLES_METHOD == DRAIN_HOLES_WITH_SHADERS
-        if ((volume == nullptr) || volume->is_modifier || volume->is_wipe_tower || ((-9000 < volume->volume_idx()) && (volume->volume_idx() < 0)))
-            continue;
-#else
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
         if ((volume == nullptr) || volume->is_modifier || volume->is_wipe_tower || (volume->volume_idx() < 0))
             continue;
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-#endif // ENABLE_DRAIN_HOLES_METHOD
-//@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
         int extruder_id = volume->extruder_id - 1;
         if ((extruder_id < 0) || ((int)colors.size() <= extruder_id))
